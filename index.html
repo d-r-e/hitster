@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>Hitster - Juego de Canciones</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Main Menu Screen -->
+    <div id="menuScreen" class="screen active">
+        <div class="container">
+            <h1 class="logo">🎵 HITSTER</h1>
+            <p class="subtitle">Juego de fiesta sobre adivinar canciones</p>
+            <button id="loginBtn" class="btn btn-primary">Conectar con Spotify</button>
+            <button id="startBtn" class="btn btn-secondary" style="display: none;">Empezar</button>
+            <p class="info-text">Requiere Spotify Premium</p>
+        </div>
+    </div>
+
+    <!-- QR Scanner Screen -->
+    <div id="scannerScreen" class="screen">
+        <div class="container">
+            <h2>Escanea el código QR</h2>
+            <div id="qrReader"></div>
+            <input type="text" id="manualUrlInput" placeholder="O pega la URL de Spotify aquí" class="url-input">
+            <button id="submitUrlBtn" class="btn btn-secondary">Enviar URL</button>
+            <button id="backToMenuBtn" class="btn btn-back">← Volver al Menú</button>
+        </div>
+    </div>
+
+    <!-- Player Screen -->
+    <div id="playerScreen" class="screen">
+        <div class="container">
+            <div class="vinyl-container">
+                <div id="vinyl" class="vinyl spinning"></div>
+            </div>
+            
+            <div class="player-controls">
+                <button id="playPauseBtn" class="btn btn-control">⏸️</button>
+            </div>
+
+            <div id="songInfo" class="song-info hidden">
+                <h2 id="songTitle">-</h2>
+                <p id="songArtist">-</p>
+                <p id="songYear" class="year">-</p>
+            </div>
+
+            <button id="revealBtn" class="btn btn-primary">Desvelar</button>
+            <button id="scanNextBtn" class="btn btn-secondary">Escanear Siguiente</button>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="spinner"></div>
+        <p>Cargando...</p>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <script src="https://sdk.scdn.co/spotify-player.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
