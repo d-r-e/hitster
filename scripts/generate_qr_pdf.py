@@ -79,19 +79,12 @@ html, body {
     font-family: 'Helvetica Neue', Arial, sans-serif;
     margin: 0;
     padding: 0;
-    height: 100%;
-}
-body {
-    display: flex;
-    flex-direction: column;
 }
 .sheet {
-    width: 100%;
-    height: 100%;
-    margin: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    width: 180mm;
+    height: 286mm;
+    margin: 0 auto;
+    display: block;
     page-break-after: always;
 }
 .sheet:last-of-type {
@@ -99,7 +92,7 @@ body {
 }
 .grid {
     width: 170mm;
-    height: 286mm;
+    height: 276mm;
     display: grid;
     grid-template-columns: repeat(3, 54mm);
     grid-template-rows: repeat(5, 54mm);
