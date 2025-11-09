@@ -19,18 +19,23 @@
     
     <!-- GitHub Pages SPA redirect handler -->
     <script>
-      // Single Page Apps for GitHub Pages
-      // https://github.com/rafgraph/spa-github-pages
-      (function(l) {
-        if (l.search[1] === '/' ) {
-          var decoded = l.search.slice(1).split('&').map(function(s) { 
-            return s.replace(/~and~/g, '&')
-          }).join('?');
-          window.history.replaceState(null, null,
-              l.pathname.slice(0, -1) + decoded + l.hash
-          );
+      // Handle redirect from 404.html
+      (function() {
+        var params = new URLSearchParams(window.location.search);
+        var redirect = params.get('redirect');
+        
+        if (redirect) {
+          // Remove the redirect parameter
+          params.delete('redirect');
+          
+          // Construct the new URL with the original path
+          var newSearch = params.toString();
+          var newUrl = '/' + redirect + (newSearch ? '?' + newSearch : '') + window.location.hash;
+          
+          // Replace the current history entry
+          window.history.replaceState(null, null, newUrl);
         }
-      }(window.location))
+      })();
     </script>
   </head>
   <body>
