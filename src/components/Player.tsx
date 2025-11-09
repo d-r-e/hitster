@@ -26,13 +26,18 @@ export default function Player() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
   const scriptLoaded = useRef(false);
+  const playAttempts = useRef(0);
 
   const trackUrl = searchParams.get('url');
+  
+  console.log('🎬 Player component rendering/mounting with URL:', trackUrl);
 
   useEffect(() => {
     console.log('🎵 Player mounted');
     console.log('Track URL:', trackUrl);
     console.log('Access Token:', accessToken ? 'Present' : 'Missing');
+    console.log('Player already exists:', !!player);
+    console.log('Device ID:', deviceId);
     
     if (!trackUrl || !accessToken) {
       console.error('❌ Missing trackUrl or accessToken, redirecting to home');
@@ -40,11 +45,20 @@ export default function Player() {
       return;
     }
 
-    loadTrackInfo();
+    // Reset states for new track
+    setTrackInfo(null);
+    setCsvSong(null);
+    setRevealed(false);
+    setIsPlaying(false);
+    setError('');
+    playAttempts.current = 0; // Reset play attempts for new track
+    
+    // Initialize player (will always be new since component remounts on URL change)
     initializePlayer();
+    loadTrackInfo();
 
     return () => {
-      console.log('🔌 Player unmounting, disconnecting player');
+      console.log('🔌 Player unmounting, disconnecting player for remount');
       if (player) {
         player.disconnect();
       }
@@ -55,12 +69,15 @@ export default function Player() {
     if (!trackUrl) return;
 
     console.log('📡 Loading track info...');
+    setLoading(true);
+    
     const trackId = extractTrackId(trackUrl);
     console.log('Track ID:', trackId);
     
     if (!trackId) {
       console.error('❌ Invalid track ID');
       setError('URL de Spotify inválida');
+      setLoading(false);
       return;
     }
 
@@ -68,8 +85,10 @@ export default function Player() {
     if (info) {
       console.log('✅ Track info loaded:', info.name);
       setTrackInfo(info);
+      setLoading(false);
     } else {
       setError('No se pudo cargar la canción');
+      setLoading(false);
     }
 
     const songs = await loadSongs();
@@ -174,7 +193,7 @@ export default function Player() {
       return;
     }
 
-    console.log('▶️ Playing track:', trackInfo.name);
+    console.log('▶️ Playing track:', trackInfo.name, '(Attempt', playAttempts.current + 1, ')');
 
     try {
       const response = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
@@ -189,9 +208,22 @@ export default function Player() {
       });
       
       if (!response.ok) {
-        console.error('❌ Failed to play track:', response.status);
+        const errorText = await response.text();
+        console.error('❌ Failed to play track:', response.status, errorText);
+        
+        // Retry only once if this is the first attempt
+        if (playAttempts.current === 0) {
+          playAttempts.current++;
+          console.log('🔄 Retrying playback...');
+          setTimeout(() => playTrack(), 1500);
+        } else {
+          console.error('❌ Max retry attempts reached');
+          setError('Error al reproducir la canción');
+        }
       } else {
-        console.log('✅ Track started playing');
+        console.log('✅ Track started playing successfully');
+        playAttempts.current = 0; // Reset for next track
+        setIsPlaying(true);
       }
     } catch (err) {
       console.error('❌ Error playing track:', err);
@@ -209,15 +241,19 @@ export default function Player() {
   };
 
   const handleNewScan = () => {
+    // Stop playback immediately before navigating
     if (player) {
-      player.disconnect();
+      console.log('⏹️ Stopping player before navigation');
+      player.pause();
     }
     navigate('/scanner');
   };
 
   const handleBack = () => {
+    // Stop playback immediately before navigating
     if (player) {
-      player.disconnect();
+      console.log('⏹️ Stopping player before navigation');
+      player.pause();
     }
     navigate('/home');
   };
@@ -227,11 +263,14 @@ export default function Player() {
       console.log('🎵 Device and track ready, auto-playing...');
       console.log('Device ID:', deviceId);
       console.log('Track:', trackInfo.name);
-      // Auto-play when ready
-      setTimeout(() => {
+      console.log('Current isPlaying state:', isPlaying);
+      // Auto-play when ready - always play new track regardless of previous state
+      const timer = setTimeout(() => {
         console.log('⏰ Timeout reached, calling playTrack()');
         playTrack();
-      }, 1000);
+      }, 1500);
+      
+      return () => clearTimeout(timer);
     }
   }, [deviceId, trackInfo]);
 

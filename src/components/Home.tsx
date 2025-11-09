@@ -11,10 +11,10 @@ export default function Home() {
   };
 
   const handleMock = () => {
-    // Primera canción de songs.csv: Sonia y Selena - Yo quiero bailar
+    // Mock URL for testing
     const mockUrl = 'https://open.spotify.com/intl-es/track/4rFCPjKfgbEeNvs1Ku4nbd';
     console.log('🎭 Using mock URL:', mockUrl);
-    navigate(`/player?url=${encodeURIComponent(mockUrl)}`);
+    navigate(`/player?url=${encodeURIComponent(mockUrl)}&t=${Date.now()}`);
   };
 
   const handleLogout = () => {
