@@ -21,6 +21,7 @@ export default defineConfig({
       }
     }
   },
+  base: '/hitster/',
   preview: {
     host: true,
     port: 5173,
