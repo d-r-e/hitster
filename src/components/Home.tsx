@@ -6,6 +6,9 @@ export default function Home() {
   const navigate = useNavigate();
   const { logout } = useAuth();
 
+  // Solo mostrar modo test en URLs de desarrollo
+  const isDevEnvironment = window.location.hostname.includes('app.github.dev');
+
   const handleStart = () => {
     navigate('/scanner');
   };
@@ -38,9 +41,11 @@ export default function Home() {
           📸 Empezar
         </button>
         
-        <button className="neon-button mock" onClick={handleMock}>
-          🎭 Modo Test
-        </button>
+        {isDevEnvironment && (
+          <button className="neon-button mock" onClick={handleMock}>
+            🎭 Modo Test
+          </button>
+        )}
         
         <button className="neon-button secondary" onClick={handleLogout}>
           Cerrar sesión
