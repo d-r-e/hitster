@@ -17,7 +17,7 @@ export default function Login() {
           </div>
         </div>
         <h1 className="neon-title">HITSTER</h1>
-        <p className="subtitle">Adivina la canción</p>
+        <p className="subtitle">Davo Edition</p>
         <button className="neon-button" onClick={handleLogin}>
           <span>🎵</span> Conectar con Spotify
         </button>
