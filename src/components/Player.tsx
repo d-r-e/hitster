@@ -25,7 +25,6 @@ export default function Player() {
   const [deviceId, setDeviceId] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
-  const scriptLoaded = useRef(false);
   const playAttempts = useRef(0);
 
   const trackUrl = searchParams.get('url');
@@ -33,11 +32,9 @@ export default function Player() {
   console.log('🎬 Player component rendering/mounting with URL:', trackUrl);
 
   useEffect(() => {
-    console.log('🎵 Player mounted');
+    console.log('🎵 Player mounted/updated');
     console.log('Track URL:', trackUrl);
     console.log('Access Token:', accessToken ? 'Present' : 'Missing');
-    console.log('Player already exists:', !!player);
-    console.log('Device ID:', deviceId);
     
     if (!trackUrl || !accessToken) {
       console.error('❌ Missing trackUrl or accessToken, redirecting to home');
@@ -45,20 +42,29 @@ export default function Player() {
       return;
     }
 
-    // Reset states for new track
+    // Reset ALL states for new track
     setTrackInfo(null);
     setCsvSong(null);
     setRevealed(false);
     setIsPlaying(false);
     setError('');
-    playAttempts.current = 0; // Reset play attempts for new track
+    setLoading(true);
+    playAttempts.current = 0;
     
-    // Initialize player (will always be new since component remounts on URL change)
+    // Disconnect old player if exists
+    if (player) {
+      console.log('🔌 Disconnecting old player');
+      player.disconnect();
+      setPlayer(null);
+      setDeviceId('');
+    }
+    
+    // Initialize new player
     initializePlayer();
     loadTrackInfo();
 
     return () => {
-      console.log('🔌 Player unmounting, disconnecting player for remount');
+      console.log('🔌 Player unmounting, cleaning up');
       if (player) {
         player.disconnect();
       }
@@ -99,17 +105,24 @@ export default function Player() {
   };
 
   const initializePlayer = () => {
-    console.log('🎧 Initializing Spotify Player...');
+    console.log('🎧 Initializing NEW Spotify Player...');
     
     // Check if SDK is already loaded and ready
     if (window.Spotify) {
-      console.log('✅ Spotify SDK already available, setting up player');
+      console.log('✅ Spotify SDK already available, setting up NEW player');
       setupPlayer();
       return;
     }
     
-    if (scriptLoaded.current) {
-      console.log('⏳ Script loading, waiting for SDK...');
+    // Check if script is already in the DOM
+    const existingScript = document.querySelector('script[src="https://sdk.scdn.co/spotify-player.js"]');
+    if (existingScript) {
+      console.log('⏳ Script already in DOM, waiting for SDK...');
+      // Set up callback for when SDK is ready
+      window.onSpotifyWebPlaybackSDKReady = () => {
+        console.log('✅ Spotify Web Playback SDK Ready (from existing script)');
+        setupPlayer();
+      };
       return;
     }
 
@@ -118,10 +131,9 @@ export default function Player() {
     script.src = 'https://sdk.scdn.co/spotify-player.js';
     script.async = true;
     document.body.appendChild(script);
-    scriptLoaded.current = true;
 
     window.onSpotifyWebPlaybackSDKReady = () => {
-      console.log('✅ Spotify Web Playback SDK Ready');
+      console.log('✅ Spotify Web Playback SDK Ready (from new script)');
       setupPlayer();
     };
   };
@@ -263,16 +275,19 @@ export default function Player() {
       console.log('🎵 Device and track ready, auto-playing...');
       console.log('Device ID:', deviceId);
       console.log('Track:', trackInfo.name);
-      console.log('Current isPlaying state:', isPlaying);
-      // Auto-play when ready - always play new track regardless of previous state
+      console.log('Track URL:', trackUrl);
+      // Auto-play when ready
       const timer = setTimeout(() => {
         console.log('⏰ Timeout reached, calling playTrack()');
         playTrack();
       }, 1500);
       
-      return () => clearTimeout(timer);
+      return () => {
+        console.log('🧹 Cleaning up auto-play timer');
+        clearTimeout(timer);
+      };
     }
-  }, [deviceId, trackInfo]);
+  }, [deviceId, trackInfo, trackUrl]);
 
   const getYear = () => {
     if (csvSong) {
