@@ -29,10 +29,10 @@ export default function Player() {
 
   const trackUrl = searchParams.get('url');
   
-  console.log('🎬 Player component rendering/mounting with URL:', trackUrl);
+  console.log('🎬 Player component loaded with URL:', trackUrl);
 
   useEffect(() => {
-    console.log('🎵 Player mounted/updated');
+    console.log('🎵 Player mounted - fresh page load');
     console.log('Track URL:', trackUrl);
     console.log('Access Token:', accessToken ? 'Present' : 'Missing');
     
@@ -42,24 +42,7 @@ export default function Player() {
       return;
     }
 
-    // Reset ALL states for new track
-    setTrackInfo(null);
-    setCsvSong(null);
-    setRevealed(false);
-    setIsPlaying(false);
-    setError('');
-    setLoading(true);
-    playAttempts.current = 0;
-    
-    // Disconnect old player if exists
-    if (player) {
-      console.log('🔌 Disconnecting old player');
-      player.disconnect();
-      setPlayer(null);
-      setDeviceId('');
-    }
-    
-    // Initialize new player
+    // Initialize player and load track
     initializePlayer();
     loadTrackInfo();
 
@@ -69,7 +52,7 @@ export default function Player() {
         player.disconnect();
       }
     };
-  }, [trackUrl, accessToken]);
+  }, []); // Empty deps - only run once on mount since page reloads for each new song
 
   const loadTrackInfo = async () => {
     if (!trackUrl) return;
@@ -253,12 +236,14 @@ export default function Player() {
   };
 
   const handleNewScan = () => {
-    // Stop playback immediately before navigating
+    // Stop playback and force full page reload to scanner
     if (player) {
       console.log('⏹️ Stopping player before navigation');
       player.pause();
+      player.disconnect();
     }
-    navigate('/scanner');
+    console.log('🔄 Full page reload to scanner');
+    window.location.href = '/scanner';
   };
 
   const handleBack = () => {
@@ -275,7 +260,6 @@ export default function Player() {
       console.log('🎵 Device and track ready, auto-playing...');
       console.log('Device ID:', deviceId);
       console.log('Track:', trackInfo.name);
-      console.log('Track URL:', trackUrl);
       // Auto-play when ready
       const timer = setTimeout(() => {
         console.log('⏰ Timeout reached, calling playTrack()');
@@ -287,7 +271,7 @@ export default function Player() {
         clearTimeout(timer);
       };
     }
-  }, [deviceId, trackInfo, trackUrl]);
+  }, [deviceId, trackInfo]); // Only these deps needed since page reloads for each song
 
   const getYear = () => {
     if (csvSong) {

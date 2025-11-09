@@ -14,10 +14,10 @@ export default function Home() {
   };
 
   const handleMock = () => {
-    // Mock URL for testing
+    // Mock URL for testing - force full page reload
     const mockUrl = 'https://open.spotify.com/intl-es/track/4rFCPjKfgbEeNvs1Ku4nbd';
     console.log('🎭 Using mock URL:', mockUrl);
-    navigate(`/player?url=${encodeURIComponent(mockUrl)}&t=${Date.now()}`);
+    window.location.href = `/player?url=${encodeURIComponent(mockUrl)}&t=${Date.now()}`;
   };
 
   const handleLogout = () => {

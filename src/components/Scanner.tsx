@@ -72,8 +72,10 @@ export default function Scanner() {
       console.log('✅ Valid Spotify URL detected');
       hasNavigated.current = true;
       stopScanner().then(() => {
-        // Add timestamp to force component remount
-        navigate(`/player?url=${encodeURIComponent(decodedText)}&t=${Date.now()}`);
+        // Force full page reload - no React Router caching
+        const playerUrl = `/player?url=${encodeURIComponent(decodedText)}&t=${Date.now()}`;
+        console.log('🔄 Full page reload to:', playerUrl);
+        window.location.href = playerUrl;
       });
     } else {
       console.log('⚠️ Not a Spotify track URL');

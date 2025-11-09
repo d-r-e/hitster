@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate, useSearchParams } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Login from './components/Login';
 import Home from './components/Home';
@@ -9,18 +9,6 @@ import './App.css';
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { accessToken } = useAuth();
   return accessToken ? <>{children}</> : <Navigate to="/" />;
-}
-
-function PlayerWrapper() {
-  const [searchParams] = useSearchParams();
-  const trackUrl = searchParams.get('url') || '';
-  const timestamp = searchParams.get('t') || '';
-  
-  // Use trackUrl + timestamp as key to force remount when URL changes
-  const uniqueKey = `${trackUrl}-${timestamp}`;
-  console.log('🔑 PlayerWrapper - Unique key:', uniqueKey);
-  
-  return <Player key={uniqueKey} />;
 }
 
 function CallbackHandler() {
@@ -97,7 +85,7 @@ function AppRoutes() {
         path="/player"
         element={
           <ProtectedRoute>
-            <PlayerWrapper />
+            <Player />
           </ProtectedRoute>
         }
       />
