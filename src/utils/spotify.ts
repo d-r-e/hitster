@@ -60,10 +60,11 @@ export const exchangeCodeForToken = async (code: string): Promise<AuthTokens | n
     return null;
   }
 
-  console.log('� Exchanging code for token...');
+  console.log('🔄 Exchanging code for token...');
 
   try {
-    const response = await fetch('/api/spotify/token', {
+    // Llamada directa a la API de Spotify (funciona con PKCE)
+    const response = await fetch('https://accounts.spotify.com/api/token', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
