@@ -1,0 +1,130 @@
+.home-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: linear-gradient(135deg, #0a0015 0%, #1a0033 50%, #0f001f 100%);
+  position: relative;
+  overflow: hidden;
+}
+
+.home-content {
+  text-align: center;
+  z-index: 10;
+  position: relative;
+}
+
+.vinyl-animation {
+  margin-bottom: 40px;
+}
+
+.vinyl.large {
+  width: 180px;
+  height: 180px;
+  margin: 0 auto;
+  background: linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%);
+  border-radius: 50%;
+  position: relative;
+  box-shadow: 0 0 40px rgba(255, 0, 255, 0.5);
+  animation: spin 4s linear infinite;
+}
+
+.vinyl.large::before {
+  content: '';
+  position: absolute;
+  inset: 15px;
+  border-radius: 50%;
+  background: repeating-radial-gradient(
+    circle at center,
+    #2a2a2a 0px,
+    #1a1a1a 1px,
+    #2a2a2a 2px
+  );
+}
+
+.vinyl.large .vinyl-center {
+  width: 45px;
+  height: 45px;
+}
+
+.neon-button.primary {
+  margin: 20px 10px;
+  padding: 20px 50px;
+  font-size: 1.4rem;
+}
+
+.neon-button.mock {
+  background: linear-gradient(135deg, #ffff00 0%, #ff00ff 100%);
+  margin: 10px;
+  padding: 15px 40px;
+  font-size: 1.1rem;
+  box-shadow: 0 0 20px rgba(255, 255, 0, 0.6);
+}
+
+.neon-button.mock:hover {
+  box-shadow: 0 0 30px rgba(255, 255, 0, 0.8);
+}
+
+.neon-button.secondary {
+  background: transparent;
+  border: 2px solid #ff00ff;
+  color: #ff00ff;
+  padding: 12px 30px;
+  font-size: 1rem;
+  box-shadow: 0 0 15px rgba(255, 0, 255, 0.3);
+}
+
+.neon-button.secondary:hover {
+  background: rgba(255, 0, 255, 0.1);
+  box-shadow: 0 0 25px rgba(255, 0, 255, 0.5);
+}
+
+.disco-lights {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+
+.light {
+  position: absolute;
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  filter: blur(100px);
+  opacity: 0.3;
+  animation: float 6s ease-in-out infinite;
+}
+
+.light-1 {
+  background: #ff00ff;
+  top: 10%;
+  left: 10%;
+  animation-delay: 0s;
+}
+
+.light-2 {
+  background: #00ffff;
+  top: 60%;
+  right: 10%;
+  animation-delay: 2s;
+}
+
+.light-3 {
+  background: #ffff00;
+  bottom: 10%;
+  left: 50%;
+  animation-delay: 4s;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-30px) scale(1.1);
+  }
+}
