@@ -42,6 +42,14 @@ jobs:
         env:
           VITE_SPOTIFY_CLIENT_ID: ${{ secrets.VITE_SPOTIFY_CLIENT_ID }}
           VITE_REDIRECT_URI: ${{ secrets.VITE_REDIRECT_URI }}
+      - name: Log secrets and build status
+        run: |
+          echo "VITE_SPOTIFY_CLIENT_ID: $VITE_SPOTIFY_CLIENT_ID"
+          echo "VITE_REDIRECT_URI: $VITE_REDIRECT_URI"
+          echo "Build completed successfully!"
+        env:
+          VITE_SPOTIFY_CLIENT_ID: ${{ secrets.VITE_SPOTIFY_CLIENT_ID }}
+          VITE_REDIRECT_URI: ${{ secrets.VITE_REDIRECT_URI }}
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
