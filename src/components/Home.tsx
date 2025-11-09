@@ -35,7 +35,7 @@ export default function Home() {
         </div>
         
         <h1 className="neon-title">HITSTER</h1>
-        <p className="subtitle">¿Listo para el desafío?</p>
+        <p className="subtitle">Davo Edition</p>
         
         <button className="neon-button primary" onClick={handleStart}>
           📸 Empezar

@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Generate Icons</title>
+</head>
+<body>
+    <h1>Generating icons...</h1>
+    <img id="svg" style="display:none;">
+    <canvas id="canvas192" width="192" height="192" style="display:none;"></canvas>
+    <canvas id="canvas512" width="512" height="512" style="display:none;"></canvas>
+    
+    <div>
+        <h2>Icon 192x192:</h2>
+        <img id="preview192">
+        <br>
+        <a id="download192" download="icon-192.png">Download 192x192</a>
+    </div>
+    
+    <div>
+        <h2>Icon 512x512:</h2>
+        <img id="preview512">
+        <br>
+        <a id="download512" download="icon-512.png">Download 512x512</a>
+    </div>
+
+    <script>
+        const svg = document.getElementById('svg');
+        const canvas192 = document.getElementById('canvas192');
+        const canvas512 = document.getElementById('canvas512');
+        const ctx192 = canvas192.getContext('2d');
+        const ctx512 = canvas512.getContext('2d');
+
+        // Load SVG
+        fetch('/icon.svg')
+            .then(r => r.text())
+            .then(svgText => {
+                const blob = new Blob([svgText], { type: 'image/svg+xml' });
+                const url = URL.createObjectURL(blob);
+                svg.src = url;
+
+                svg.onload = () => {
+                    // Generate 192x192
+                    ctx192.drawImage(svg, 0, 0, 192, 192);
+                    const dataUrl192 = canvas192.toDataURL('image/png');
+                    document.getElementById('preview192').src = dataUrl192;
+                    document.getElementById('download192').href = dataUrl192;
+
+                    // Generate 512x512
+                    ctx512.drawImage(svg, 0, 0, 512, 512);
+                    const dataUrl512 = canvas512.toDataURL('image/png');
+                    document.getElementById('preview512').src = dataUrl512;
+                    document.getElementById('download512').href = dataUrl512;
+
+                    console.log('Icons generated! Right-click and save the images.');
+                    URL.revokeObjectURL(url);
+                };
+            });
+    </script>
+</body>
+</html>
