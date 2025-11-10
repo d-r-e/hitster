@@ -80,29 +80,37 @@ html, body {
     margin: 0;
     padding: 0;
 }
+:root {
+    --card-size: 52mm;
+    --gap: 4mm;
+    --grid-shift: 8mm;
+}
 .sheet {
-    width: 180mm;
-    height: 286mm;
+    width: calc(210mm - 10mm);
+    height: calc(297mm - 10mm);
     margin: 0 auto;
-    display: block;
+    display: grid;
+    place-items: center;
     page-break-after: always;
 }
 .sheet:last-of-type {
     page-break-after: auto;
 }
 .grid {
-    width: 170mm;
-    height: 276mm;
+    width: calc(var(--card-size) * 3 + var(--gap) * 2);
+    height: calc(var(--card-size) * 5 + var(--gap) * 4);
+    margin: 0;
     display: grid;
-    grid-template-columns: repeat(3, 54mm);
-    grid-template-rows: repeat(5, 54mm);
-    column-gap: 4mm;
-    row-gap: 4mm;
+    grid-template-columns: repeat(3, var(--card-size));
+    grid-template-rows: repeat(5, var(--card-size));
+    column-gap: var(--gap);
+    row-gap: var(--gap);
+    transform: translateX(var(--grid-shift));
 }
 .card {
     position: relative;
-    width: 100%;
-    height: 100%;
+    width: var(--card-size);
+    height: var(--card-size);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -124,7 +132,7 @@ html, body {
 }
 .card__number {
     position: absolute;
-    top: 3mm;
+    top: 2.5mm;
     font-size: 6pt;
     font-weight: 600;
     letter-spacing: 0.08em;
@@ -148,7 +156,7 @@ html, body {
 .card-back .card__header,
 .card-front .card__footer,
 .card-back .card__footer {
-    min-height: 9mm;
+    min-height: 8mm;
 }
 .card-back .card__footer {
     flex-direction: column;
@@ -162,7 +170,7 @@ html, body {
     justify-content: center;
 }
 .card__badge {
-    font-size: 6pt;
+    font-size: 5.5pt;
     font-weight: 600;
     letter-spacing: 0.12em;
     text-transform: none;
@@ -170,8 +178,8 @@ html, body {
 }
 .card__qr {
     width: 100%;
-    max-width: 44mm;
-    max-height: 44mm;
+    max-width: calc(var(--card-size) - 12mm);
+    max-height: calc(var(--card-size) - 12mm);
 }
 .card__title {
     font-size: 9pt;
@@ -180,7 +188,7 @@ html, body {
     word-break: break-word;
 }
 .card__year {
-    font-size: 32pt;
+    font-size: 30pt;
     font-weight: 700;
     letter-spacing: 0.04em;
     color: #000;
@@ -194,7 +202,7 @@ html, body {
     word-break: break-word;
 }
 .card-back .card__content {
-    min-height: 18mm;
+    min-height: 16mm;
 }
 .card-empty::after {
     border-style: dotted;
