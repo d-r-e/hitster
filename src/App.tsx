@@ -1,106 +1,162 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider, useAuth } from './context/AuthContext';
-import Login from './components/Login';
-import Home from './components/Home';
-import Scanner from './components/Scanner';
-import Player from './components/Player';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { io, type Socket } from 'socket.io-client';
+import type { GameState } from '../shared/game';
+import { useSpotifyPlayer } from './hooks/useSpotifyPlayer';
+import { type Locale, type MessageKey, useI18n } from './i18n';
+import { createRoom, joinRoom, rejoinRoom } from './lib/api';
+import { clearSession, loadSession, saveSession, type Session } from './lib/session';
+import { disconnectSpotify, finishSpotifyCallback, redirectToSpotify, spotifyConfigured } from './lib/spotify';
 import './App.css';
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { accessToken } = useAuth();
-  return accessToken ? <>{children}</> : <Navigate to="/" />;
+type Ack = { ok: boolean; error?: string; songUri?: string };
+type T = (key: MessageKey, variables?: Record<string, string | number>) => string;
+const apiUrl = import.meta.env.VITE_API_URL ?? window.location.origin;
+
+export default function App() {
+  const { locale, setLocale, t } = useI18n();
+  const tRef = useRef(t);
+  tRef.current = t;
+  const [session, setSession] = useState<Session | null>(loadSession());
+  const [state, setState] = useState<GameState | null>(null);
+  const [nickname, setNickname] = useState('');
+  const [roomCode, setRoomCode] = useState(new URLSearchParams(location.search).get('room')?.toUpperCase() ?? '');
+  const [notice, setNotice] = useState('');
+  const [socket, setSocket] = useState<Socket | null>(null);
+  const [currentDjUri, setCurrentDjUri] = useState<string | null>(null);
+  const sessionRoomCode = session?.roomCode, sessionPlayerId = session?.playerId, sessionPlayerToken = session?.playerToken;
+  const me = state?.players.find(player => player.id === sessionPlayerId);
+  const isHost = me?.isHost ?? false;
+  const spotify = useSpotifyPlayer(isHost);
+  const toggleSpotify = spotify.toggle;
+  const playSpotify = spotify.play;
+
+  useEffect(() => { finishSpotifyCallback().then(done => done && setNotice(tRef.current('spotifyConnected'))).catch(() => setNotice(tRef.current('spotifyLoginFailed'))); }, []);
+  useEffect(() => {
+    if (!sessionRoomCode || !sessionPlayerId || !sessionPlayerToken) return;
+    rejoinRoom(sessionRoomCode, sessionPlayerId, sessionPlayerToken).then(result => { saveSession(result); setState(result.state); }).catch(() => { clearSession(); setSession(null); });
+  }, [sessionRoomCode, sessionPlayerId, sessionPlayerToken]);
+  useEffect(() => {
+    if (!sessionRoomCode || !sessionPlayerId || !sessionPlayerToken) return;
+    const connection = io(apiUrl, { auth: { roomCode: sessionRoomCode, playerId: sessionPlayerId, playerToken: sessionPlayerToken }, transports: ['websocket', 'polling'] });
+    connection.on('room_state', setState); connection.on('connect_error', () => setNotice(tRef.current('reconnecting'))); connection.on('connect', () => setNotice(''));
+    setSocket(connection); return () => { connection.disconnect(); setSocket(null); };
+  }, [sessionRoomCode, sessionPlayerId, sessionPlayerToken]);
+  useEffect(() => {
+    if (!socket || !isHost || spotify.status !== 'ready' || state?.phase !== 'placing' || currentDjUri) return;
+    socket.emit('get_current_dj_song', (ack: Ack) => { if (ack.ok && ack.songUri) setCurrentDjUri(ack.songUri); });
+  }, [socket, isHost, spotify.status, state?.phase, currentDjUri]);
+  useEffect(() => {
+    if (!socket || !isHost || spotify.status !== 'ready') return;
+    const playChangedSong = (uri?: string) => { if (!uri) return; setCurrentDjUri(uri); playSpotify(uri).then(() => setNotice(tRef.current('songPlaying'))).catch(error => setNotice(error instanceof Error ? error.message : tRef.current('playbackFailed'))); };
+    socket.on('dj_song_changed', playChangedSong);
+    return () => { socket.off('dj_song_changed', playChangedSong); };
+  }, [socket, isHost, spotify.status, playSpotify]);
+  useEffect(() => {
+    if (!isHost || (state?.phase !== 'adjudicating' && state?.phase !== 'revealed' && state?.phase !== 'finished') || !spotify.isPlaying) return;
+    toggleSpotify().catch(() => undefined);
+  }, [isHost, state?.phase, spotify.isPlaying, toggleSpotify]);
+
+  const emit = (event: string, ...args: unknown[]) => new Promise<Ack>(resolve => socket ? socket.emit(event, ...args, resolve) : resolve({ ok: false, error: t('connectingGame') }));
+  const action = async (event: string, ...args: unknown[]) => { const ack = await emit(event, ...args); if (!ack.ok) setNotice(ack.error ?? t('actionFailed')); return ack; };
+  const startRound = async () => { try { await spotify.activate(); const ack = await emit('start_round'); if (!ack.ok || !ack.songUri) throw new Error(ack.error ?? t('serverNoSong')); setCurrentDjUri(ack.songUri); await spotify.play(ack.songUri); setNotice(t('songPlaying')); } catch (error) { setNotice(error instanceof Error ? error.message : t('playbackFailed')); } };
+  const retryPlayback = async () => { if (!currentDjUri) return; try { await spotify.play(currentDjUri); setNotice(t('restarted')); } catch { setNotice(t('restartFailed')); } };
+  const replaceSong = async () => { try { const ack = await emit('replace_round_song'); if (!ack.ok || !ack.songUri) throw new Error(ack.error); setCurrentDjUri(ack.songUri); await spotify.play(ack.songUri); setNotice(t('replacementPlaying')); } catch { setNotice(t('replacementFailed')); } };
+  const create = async () => { try { const result = await createRoom(nickname); saveSession(result); setSession({ roomCode: result.state.roomCode, playerId: result.playerId, playerToken: result.playerToken }); setState(result.state); history.replaceState({}, '', `?room=${result.state.roomCode}`); } catch { setNotice(t('createFailed')); } };
+  const join = async () => { try { const result = await joinRoom(roomCode, nickname); saveSession(result); setSession({ roomCode: result.state.roomCode, playerId: result.playerId, playerToken: result.playerToken }); setState(result.state); history.replaceState({}, '', `?room=${result.state.roomCode}`); } catch { setNotice(t('joinFailed')); } };
+  const connectSpotify = async () => { setNotice(t('openingSpotify')); try { await redirectToSpotify(); } catch (error) { setNotice(error instanceof Error ? error.message : t('spotifyLoginFailed')); } };
+  const leave = () => { clearSession(); setSession(null); setState(null); setCurrentDjUri(null); history.replaceState({}, '', location.pathname); };
+
+  if (!session || !state) return <Landing {...{ nickname, setNickname, roomCode, setRoomCode, create, join, notice, locale, setLocale, t }} />;
+  return <Game state={state} playerId={session.playerId} isHost={isHost} notice={notice || spotify.error} spotify={spotify} startRound={startRound} retryPlayback={retryPlayback} replaceSong={replaceSong} action={action} connectSpotify={connectSpotify} disconnectSpotify={() => { disconnectSpotify(); location.reload(); }} leave={leave} locale={locale} setLocale={setLocale} t={t} />;
 }
 
-function CallbackHandler() {
-  const { accessToken, isLoading } = useAuth();
-  console.log('📍 Callback handler - Token:', accessToken ? 'Present' : 'Not found', '- Loading:', isLoading);
-  
-  // Show loading state while processing
-  if (isLoading) {
-    return (
-      <div style={{ 
-        minHeight: '100vh', 
-        display: 'flex', 
-        alignItems: 'center', 
-        justifyContent: 'center',
-        background: 'linear-gradient(135deg, #0a0015 0%, #1a0033 50%, #0f001f 100%)',
-        color: '#00ffff',
-        fontSize: '1.5rem',
-        flexDirection: 'column',
-        gap: '20px'
-      }}>
-        <div className="vinyl loading" style={{ width: '100px', height: '100px', animation: 'spin 2s linear infinite' }}>
-          <div className="vinyl-center"></div>
-        </div>
-        Procesando autenticación...
-      </div>
-    );
+function LanguageToggle({ locale, setLocale }: { locale: Locale; setLocale: (locale: Locale) => void }) {
+  return <div className="language-toggle" aria-label="Language"><button className={locale === 'es-ES' ? 'selected' : ''} onClick={() => setLocale('es-ES')}>ES</button><button className={locale === 'en-US' ? 'selected' : ''} onClick={() => setLocale('en-US')}>EN</button></div>;
+}
+
+function Landing({ nickname, setNickname, roomCode, setRoomCode, create, join, notice, locale, setLocale, t }: { nickname: string; setNickname: (value: string) => void; roomCode: string; setRoomCode: (value: string) => void; create: () => void; join: () => void; notice: string; locale: Locale; setLocale: (locale: Locale) => void; t: T }) {
+  return <main className="landing"><LanguageToggle {...{ locale, setLocale }} /><div className="brand"><span>♫</span><h1>HITSTER</h1><p>{t('tagline')}</p></div><section className="panel"><label>{t('nickname')}<input value={nickname} maxLength={24} onChange={event => setNickname(event.target.value)} placeholder={t('nicknamePlaceholder')} /></label><button className="primary" onClick={create}>{t('createRoom')}</button><div className="divider">{t('orJoin')}</div><label>{t('roomCode')}<input value={roomCode} maxLength={6} onChange={event => setRoomCode(event.target.value.toUpperCase())} placeholder="ABC123" /></label><button disabled={!roomCode} onClick={join}>{t('joinRoom')}</button>{notice && <p className="notice">{notice}</p>}</section></main>;
+}
+
+function Game({ state, playerId, isHost, notice, spotify, startRound, retryPlayback, replaceSong, action, connectSpotify, disconnectSpotify: disconnect, leave, locale, setLocale, t }: { state: GameState; playerId: string; isHost: boolean; notice: string; spotify: ReturnType<typeof useSpotifyPlayer>; startRound: () => void; retryPlayback: () => void; replaceSong: () => void; action: (event: string, ...args: unknown[]) => Promise<Ack>; connectSpotify: () => Promise<void>; disconnectSpotify: () => void; leave: () => void; locale: Locale; setLocale: (locale: Locale) => void; t: T }) {
+  const [challengeMode, setChallengeMode] = useState(false);
+  const active = state.players.find(player => player.id === state.activePlayerId);
+  const me = state.players.find(player => player.id === playerId);
+  const resultOwner = state.players.find(player => player.id === state.lastResult?.cardOwnerId);
+  const boardOwner = (state.phase === 'revealed' || state.phase === 'adjudicating' || state.phase === 'finished') ? resultOwner ?? active : active ?? me;
+  const canPlace = state.phase === 'placing' && active?.id === playerId;
+  const myChallenge = state.challenges?.find(challenge => challenge.playerId === playerId);
+  const canChallenge = state.phase === 'placing' && active?.id !== playerId && Boolean(me?.tokens) && state.selectedPosition !== undefined && !myChallenge;
+  const upcomingIndex = state.phase === 'ready' ? state.players.findIndex(player => player.id === state.activePlayerId) : state.phase === 'revealed' ? (state.players.findIndex(player => player.id === state.activePlayerId) + 1) % state.players.length : -1;
+  const canBuy = upcomingIndex >= 0 && state.players[upcomingIndex]?.id === playerId && (me?.tokens ?? 0) >= 3;
+  const challengeAt = async (position: number) => { const result = await action('challenge_position', position); if (result.ok) setChallengeMode(false); };
+  return <main className="game"><header><div><small>{t('privateRoom')}</small><strong>{state.roomCode}</strong></div><LanguageToggle {...{ locale, setLocale }} /><button className="text" onClick={leave}>{t('leave')}</button></header>
+    {state.phase !== 'lobby' && <Scoreboard players={state.players} playerId={playerId} activePlayerId={state.activePlayerId} />}
+    <section className="status"><p>{statusText(state, playerId, t)}</p><span>{state.phase === 'lobby' ? t('players', { count: state.players.length }) : t('roundTurn', { round: state.round, name: active?.nickname ?? '' })}</span></section>
+    {state.phase === 'lobby' ? <Lobby players={state.players} isHost={isHost} spotify={spotify} connectSpotify={connectSpotify} disconnectSpotify={disconnect} start={() => action('start_game')} t={t} /> : <><SongPanel state={state} t={t} />{state.phase === 'placing' && <TokenActions state={state} me={me} canPlace={canPlace} canChallenge={canChallenge} challengeMode={challengeMode} setChallengeMode={setChallengeMode} action={action} t={t} />}{boardOwner && <Timeline player={boardOwner} isOwn={boardOwner.id === playerId} canPlace={canPlace} challengeMode={challengeMode} challenges={state.phase === 'placing' ? state.challenges ?? [] : []} showMystery={state.phase === 'placing'} selectedPosition={state.selectedPosition} place={position => action('select_position', position)} challenge={challengeAt} confirm={() => action('confirm_position')} t={t} />}{canBuy && <button className="token-buy" onClick={() => action('buy_guaranteed_card')}>{t('buyCard')}</button>}{state.phase === 'adjudicating' && isHost && <TitleAdjudication action={action} t={t} />}{state.phase === 'adjudicating' && !isHost && <p className="review-wait">{t('waitingTitleReview')}</p>}{isHost && <HostControls state={state} spotify={spotify} startRound={startRound} retryPlayback={retryPlayback} replaceSong={replaceSong} connectSpotify={connectSpotify} t={t} />}</>}
+    {(notice || state.phase === 'interrupted') && <p className="notice page-notice">{notice || t('interrupted')}</p>}
+  </main>;
+}
+
+function Scoreboard({ players, playerId, activePlayerId }: { players: GameState['players']; playerId: string; activePlayerId: string | null }) {
+  return <div className="scoreboard">{players.map(player => <div key={player.id} className={`score-chip ${player.id === playerId ? 'mine' : ''} ${player.id === activePlayerId ? 'active' : ''}`}><span>{player.nickname}</span><strong><i className="score-disc" />{player.score}<i className="hitster-token" />{player.tokens}</strong></div>)}</div>;
+}
+
+function statusText(state: GameState, playerId: string, t: T) {
+  const active = state.players.find(player => player.id === state.activePlayerId), winner = state.players.find(player => player.id === state.winnerId), resultPlayer = state.players.find(player => player.id === state.lastResult?.playerId);
+  if (state.phase === 'finished') return t('winner', { name: winner?.nickname ?? '' });
+  if (state.phase === 'interrupted') return t('interrupted');
+  if (state.phase === 'ready') return t('starts', { name: active?.nickname ?? '' });
+  if (state.phase === 'listening') return t('listen');
+  if (state.phase === 'placing') return active?.id === playerId ? t('yourPlacement') : t('playerPlacement', { name: active?.nickname ?? '' });
+  if (state.phase === 'adjudicating') return t('waitingTitleReview');
+  if (state.phase === 'revealed' && state.lastResult) {
+    const owner = state.players.find(player => player.id === state.lastResult!.cardOwnerId);
+    if (state.lastResult.guaranteed) return t('guaranteed', { name: owner?.nickname ?? '' });
+    if (owner?.id !== state.lastResult.playerId) return t('stolen', { name: owner?.nickname ?? '' });
+    return t(state.lastResult.correct ? 'correct' : 'wrong', { name: resultPlayer?.nickname ?? '' });
   }
-  
-  // Redirect to home if we have a token
-  if (accessToken) {
-    return <Navigate to="/home" />;
-  }
-  
-  // Give a moment for the auth context to process
-  return (
-    <div style={{ 
-      minHeight: '100vh', 
-      display: 'flex', 
-      alignItems: 'center', 
-      justifyContent: 'center',
-      background: 'linear-gradient(135deg, #0a0015 0%, #1a0033 50%, #0f001f 100%)',
-      color: '#00ffff',
-      fontSize: '1.5rem'
-    }}>
-      Verificando autenticación...
-    </div>
-  );
+  return t('waitingSong');
 }
 
-function AppRoutes() {
-  const { accessToken } = useAuth();
-
-  return (
-    <Routes>
-      <Route path="/" element={accessToken ? <Navigate to="/home" /> : <Login />} />
-      <Route path="/callback" element={<CallbackHandler />} />
-      <Route
-        path="/home"
-        element={
-          <ProtectedRoute>
-            <Home />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/scanner"
-        element={
-          <ProtectedRoute>
-            <Scanner />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/player"
-        element={
-          <ProtectedRoute>
-            <Player />
-          </ProtectedRoute>
-        }
-      />
-    </Routes>
-  );
+function Lobby({ players, isHost, spotify, connectSpotify, disconnectSpotify: disconnect, start, t }: { players: GameState['players']; isHost: boolean; spotify: ReturnType<typeof useSpotifyPlayer>; connectSpotify: () => Promise<void>; disconnectSpotify: () => void; start: () => void; t: T }) {
+  const spotifyStatus = spotify.status === 'ready' ? t('spotifyReady') : spotify.status === 'connecting' ? t('spotifyConnecting') : spotify.status === 'error' ? spotify.error : spotifyConfigured() ? t('spotifyPremium') : t('spotifyMissing');
+  return <section className="panel lobby"><div className="box-label">HITSTER PARTY</div><h2>{t('lobby')}</h2><p>{t('lobbyHelp')}</p><div className="player-rack">{players.map((player, index) => <div className="player-piece" key={player.id}><i className={`player-disc disc-${index % 4}`} /><span>{player.nickname}</span>{player.isHost && <small>{t('dj')}</small>}<b className={player.connected ? 'online' : 'offline'} /></div>)}</div>{isHost && <div className={`spotify-status ${spotify.status}`}><span className="spotify-dot" /><div><strong>{t('spotifyDj')}</strong><small>{spotifyStatus}</small></div></div>}{isHost && spotify.status === 'disconnected' && spotifyConfigured() && <button className="spotify-button" onClick={connectSpotify}>{t('connectSpotify')}</button>}{isHost && spotify.status === 'error' && <><button className="spotify-button" onClick={connectSpotify}>{t('reconnectSpotify')}</button><button className="text" onClick={disconnect}>{t('clearSpotify')}</button></>}{isHost ? <button className="primary" disabled={spotify.status !== 'ready'} onClick={start}>{t('startGame')}</button> : <p className="waiting">{t('waitingDj')}</p>}</section>;
 }
 
-function App() {
-  return (
-    <BrowserRouter>
-      <AuthProvider>
-        <AppRoutes />
-      </AuthProvider>
-    </BrowserRouter>
-  );
+function SongPanel({ state, t }: { state: GameState; t: T }) { const song = state.currentSong; return <section className={`song ${song ? 'revealed' : ''}`}><div className={`record ${state.phase === 'placing' ? 'spinning' : ''}`}><i className="record-label">HITSTER</i></div>{song ? <div><small>{t('answer')}</small><h2>{song.title}</h2><p>{song.artist} · {song.year}</p></div> : <div><small>{t('nowPlaying')}</small><h2>{t(state.phase === 'placing' ? 'placeSong' : 'listenClosely')}</h2></div>}</section>; }
+
+function TokenActions({ state, me, canPlace, canChallenge, challengeMode, setChallengeMode, action, t }: { state: GameState; me?: GameState['players'][number]; canPlace: boolean; canChallenge: boolean; challengeMode: boolean; setChallengeMode: (value: boolean) => void; action: (event: string, ...args: unknown[]) => Promise<Ack>; t: T }) {
+  if (!me) return null;
+  const canSkip = canPlace && me.tokens > 0 && state.selectedPosition === undefined && !state.titleClaimed && !state.challenges?.length;
+  return <div className="token-actions">{canPlace && <button className={`claim-toggle ${state.titleClaimed ? 'pressed' : ''}`} onClick={() => action('set_title_claim', !state.titleClaimed)}><i className="hitster-token" /><span><strong>{t('titleArtistClaim')}</strong><small>{t('titleClaimHelp')}</small></span></button>}{canSkip && <button onClick={() => action('skip_song')}>{t('skipSong')}</button>}{canChallenge && <button className={`hitster-call ${challengeMode ? 'pressed' : ''}`} onClick={() => setChallengeMode(!challengeMode)}>{t('challenge')}</button>}{challengeMode && <small className="challenge-help">{t('challengeHelp')}</small>}</div>;
 }
 
-export default App;
+function TitleAdjudication({ action, t }: { action: (event: string, ...args: unknown[]) => Promise<Ack>; t: T }) {
+  return <section className="title-review"><i className="hitster-token large" /><strong>{t('validateGuess')}</strong><div><button className="primary" onClick={() => action('adjudicate_title', true)}>{t('guessCorrect')}</button><button onClick={() => action('adjudicate_title', false)}>{t('guessWrong')}</button></div></section>;
+}
+
+function Timeline({ player, isOwn, canPlace, challengeMode, challenges, showMystery, selectedPosition, place, challenge, confirm, t }: { player: GameState['players'][number]; isOwn: boolean; canPlace: boolean; challengeMode: boolean; challenges: NonNullable<GameState['challenges']>; showMystery: boolean; selectedPosition?: number; place: (position: number) => void; challenge: (position: number) => void; confirm: () => void; t: T }) {
+  const [dragging, setDragging] = useState(false), [hovered, setHovered] = useState<number | null>(null), [offset, setOffset] = useState(0);
+  const startY = useRef(0);
+  const findDrop = (clientY: number) => { const zones = [...document.querySelectorAll<HTMLElement>(`[data-board="${player.id}"] .drop-zone`)]; return zones.reduce<{ index: number; distance: number } | null>((best, zone) => { const rect = zone.getBoundingClientRect(), distance = Math.abs(clientY - (rect.top + rect.bottom) / 2), index = Number(zone.dataset.dropIndex); return !best || distance < best.distance ? { index, distance } : best; }, null)?.index ?? null; };
+  const pointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => { if (!canPlace) return; event.currentTarget.setPointerCapture(event.pointerId); startY.current = event.clientY; setDragging(true); setHovered(findDrop(event.clientY)); };
+  const pointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => { if (!dragging) return; setOffset(event.clientY - startY.current); setHovered(findDrop(event.clientY)); };
+  const pointerUp = () => { if (dragging && hovered !== null) place(hovered); setDragging(false); setHovered(null); setOffset(0); };
+  const mysteryRecord = (compact: boolean) => <button className={`mystery-track ${compact ? 'in-slot' : 'at-deck'} ${canPlace ? 'draggable' : 'spectator'} ${dragging ? 'dragging' : ''}`} style={{ transform: `translate3d(0, ${offset}px, 0)` }} disabled={!canPlace} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={pointerUp}><i className="mystery-vinyl"><em>HITSTER</em></i>{!compact && <span>{canPlace ? t('dragTrack') : t('watchingDrag', { name: player.nickname })}</span>}<b>⋮⋮</b></button>;
+  const challengeMarkers = (position: number) => challenges.filter(item => item.position === position).map(item => <i className="challenge-token" key={item.playerId}>H</i>);
+  const interactable = canPlace || challengeMode;
+  return <section className="timeline" data-board={player.id}><div className="timeline-title"><div><small>HITSTER</small><h2>{isOwn ? t('yourBoard') : t('boardOf', { name: player.nickname })}</h2></div></div>{showMystery && selectedPosition === undefined && mysteryRecord(false)}<div className={`chart-list ${challengeMode ? 'challenge-mode' : ''}`}>{Array.from({ length: player.timeline.length + 1 }, (_, index) => <div className="chart-slot" key={`slot-${index}`}>{showMystery && selectedPosition === index ? <div data-drop-index={index} className={`drop-zone occupied ${hovered === index ? 'hovered' : ''}`}>{mysteryRecord(true)}<span className="challenge-stack">{challengeMarkers(index)}</span></div> : <button data-drop-index={index} className={`drop-zone ${interactable ? 'available' : ''} ${hovered === index ? 'hovered' : ''}`} disabled={!interactable} onClick={() => canPlace ? place(index) : challenge(index)} aria-label={t('placePosition', { position: index + 1 })}><span className="challenge-stack">{challengeMarkers(index)}</span></button>}{index < player.timeline.length && <article className={`chart-card ${decadeClass(player.timeline[index].song.year)}`}><div className="chart-year"><strong>{player.timeline[index].song.year}</strong></div><div className="chart-copy"><strong>{player.timeline[index].song.title}</strong><span>{player.timeline[index].song.artist}</span></div></article>}</div>)}</div>{canPlace && selectedPosition !== undefined && <div className="confirm-tray"><span>{t('changePosition')}</span><button className="primary" onClick={confirm}>{t('confirmPosition')}</button></div>}</section>;
+}
+
+function decadeClass(year: number) {
+  const decade = Math.floor(year / 10) * 10;
+  if (decade < 1960) return 'decade-50';
+  if (decade > 2020) return 'decade-20';
+  return `decade-${String(decade).slice(-2)}`;
+}
+
+function HostControls({ state, spotify, startRound, retryPlayback, replaceSong, connectSpotify, t }: { state: GameState; spotify: ReturnType<typeof useSpotifyPlayer>; startRound: () => void; retryPlayback: () => void; replaceSong: () => void; connectSpotify: () => Promise<void>; t: T }) {
+  if (spotify.status !== 'ready') return <section className="host-controls compact"><button className="spotify-button" onClick={connectSpotify}>{t('reconnectSpotify')}</button></section>;
+  return <section className="host-controls compact">{(state.phase === 'ready' || state.phase === 'revealed') && <button className="primary" onClick={startRound}>{t('playNext')}</button>}{state.phase === 'placing' && <div className="dj-toolbar"><button className="icon-button" onClick={spotify.toggle} aria-label={t(spotify.isPlaying ? 'pause' : 'resume')} title={t(spotify.isPlaying ? 'pause' : 'resume')}><span aria-hidden="true">{spotify.isPlaying ? 'Ⅱ' : '▶'}</span></button><button className="icon-button" onClick={retryPlayback} aria-label={t('restart')} title={t('restart')}><span aria-hidden="true">↻</span></button><button className="replace-link" onClick={replaceSong}>{t('replaceSong')}</button></div>}</section>;
+}

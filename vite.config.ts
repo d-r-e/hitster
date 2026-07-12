@@ -10,16 +10,14 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
-      '/api/spotify': {
-        target: 'https://accounts.spotify.com',
+      '/api': {
+        target: 'http://localhost:3001',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/spotify/, '/api'),
-        configure: (proxy) => {
-          proxy.on('proxyReq', (proxyReq) => {
-            proxyReq.setHeader('Origin', 'https://accounts.spotify.com');
-          });
-        }
-      }
+      },
+      '/socket.io': {
+        target: 'ws://localhost:3001',
+        ws: true,
+      },
     }
   },
   preview: {
