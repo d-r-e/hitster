@@ -21,6 +21,7 @@ const games = new GameService(loadCatalog());
 const port = Number(process.env.PORT ?? 3001);
 const dist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist');
 const requests = new Map<string, { count: number; resetAt: number }>();
+let spotifySdkCache: { body: string; expiresAt: number } | undefined;
 
 function clientAddress(value: string | undefined) { return value?.split(',')[0]?.trim() || 'unknown'; }
 function rateLimit(limit: number, windowMs: number): express.RequestHandler {
@@ -48,7 +49,7 @@ app.use((req, res, next) => {
     res.setHeader('Vary', 'Origin');
   }
   if (req.method === 'OPTIONS') return res.sendStatus(204);
-  res.setHeader('Content-Security-Policy', "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self' 'unsafe-inline' https://sdk.scdn.co; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://api.spotify.com https://accounts.spotify.com wss://dealer.spotify.com; img-src 'self' data:; media-src 'self';");
+  res.setHeader('Content-Security-Policy', "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; frame-src https://sdk.scdn.co; script-src 'self' 'unsafe-inline' https://sdk.scdn.co; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.spotify.com wss://*.spotify.com; img-src 'self' data: https://i.scdn.co; media-src 'self' blob: https://*.scdn.co https://*.spotify.com; worker-src 'self' blob:;");
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
@@ -58,6 +59,20 @@ app.use((req, res, next) => {
 });
 app.use(express.json({ limit: '16kb' }));
 app.get('/api/health', (_, res) => res.json({ ok: true }));
+app.get('/api/spotify/player-sdk.js', async (_, res) => {
+  try {
+    if (!spotifySdkCache || spotifySdkCache.expiresAt <= Date.now()) {
+      const response = await fetch('https://sdk.scdn.co/spotify-player.js');
+      if (!response.ok) throw new Error(`Spotify SDK returned ${response.status}`);
+      spotifySdkCache = { body: await response.text(), expiresAt: Date.now() + 60 * 60_000 };
+    }
+    res.setHeader('Content-Type', 'text/javascript; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(spotifySdkCache.body);
+  } catch {
+    res.status(502).type('text/plain').send('Spotify player SDK is temporarily unavailable.');
+  }
+});
 
 function fail(res: express.Response, error: unknown) {
   const message = error instanceof Error && /^[\w .,!'-]+$/.test(error.message) ? error.message : 'Unexpected error';

@@ -28,6 +28,7 @@ export function useSpotifyPlayer(enabled: boolean) {
   useEffect(() => {
     if (!enabled || !hasSpotifySession()) { setStatus('disconnected'); return; }
     let cancelled = false;
+    let readyTimer: ReturnType<typeof setTimeout> | undefined;
     setStatus('connecting'); setError('');
     const initialize = () => {
       if (cancelled || !window.Spotify || playerRef.current) return;
@@ -37,16 +38,19 @@ export function useSpotifyPlayer(enabled: boolean) {
       player.addListener('player_state_changed', state => { if (state) setIsPlaying(!state.paused); });
       for (const event of ['initialization_error', 'authentication_error', 'account_error', 'playback_error']) player.addListener(event, payload => { setError(payload?.message ?? 'Spotify player error.'); setStatus('error'); });
       playerRef.current = player;
-      player.connect().catch(() => { setError('Could not connect the Spotify player.'); setStatus('error'); });
+      readyTimer = setTimeout(() => { if (!cancelled && !deviceRef.current) { setError('Spotify took too long to create the player. Reconnect Spotify and try again.'); setStatus('error'); } }, 15_000);
+      player.connect().then(connected => {
+        if (!connected) { setError('Spotify rejected the player connection. Clear the Spotify session and connect again.'); setStatus('error'); }
+      }).catch(() => { setError('Could not connect the Spotify player.'); setStatus('error'); });
     };
     if (window.Spotify) initialize();
     else {
       window.onSpotifyWebPlaybackSDKReady = initialize;
-      if (!document.querySelector('script[src="https://sdk.scdn.co/spotify-player.js"]')) {
-        const script = document.createElement('script'); script.src = 'https://sdk.scdn.co/spotify-player.js'; script.async = true; document.body.appendChild(script);
+      if (!document.querySelector('script[src="/api/spotify/player-sdk.js"]')) {
+        const script = document.createElement('script'); script.src = '/api/spotify/player-sdk.js'; script.async = true; script.onerror = () => { if (!cancelled) { setError('Could not load the Spotify player SDK.'); setStatus('error'); } }; document.body.appendChild(script);
       }
     }
-    return () => { cancelled = true; playerRef.current?.disconnect(); playerRef.current = null; deviceRef.current = null; };
+    return () => { cancelled = true; if (readyTimer) clearTimeout(readyTimer); playerRef.current?.disconnect(); playerRef.current = null; deviceRef.current = null; };
   }, [enabled]);
 
   const activate = useCallback(() => playerRef.current?.activateElement(), []);
