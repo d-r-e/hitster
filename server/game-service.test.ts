@@ -9,6 +9,12 @@ function packs(years = [...baseYears, ...baseYears, ...baseYears, ...baseYears, 
   return [{ id: 'all', name: 'All', songs: years.map((year, index): Song => ({ id: `song-${index}`, artist: `Artist ${index}`, title: `Song ${index}`, year, spotifyUri: `spotify:track:${index}` })) }];
 }
 
+test('room codes contain three unambiguous letters', () => {
+  const game = new GameService(packs());
+  const { room } = game.createRoom('Host');
+  assert.match(room.code, /^[A-HJ-KM-NP-Z]{3}$/);
+});
+
 test('a solo DJ can complete a hidden listen/place/confirm loop', () => {
   const game = new GameService(packs());
   const { room, player } = game.createRoom('Solo DJ');

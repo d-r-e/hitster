@@ -29,10 +29,20 @@ function row(line: string) {
 }
 
 function parseCsv(file: string): Song[] {
-  const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/).filter(Boolean).slice(1);
+  const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/).filter(Boolean);
+  const header = row(lines.shift()?.replace(/^\uFEFF/, '') ?? '');
+  const artistIndex = header.indexOf('Artista');
+  const titleIndex = header.indexOf('Título');
+  const yearIndex = header.indexOf('Año');
+  const urlIndex = header.indexOf('URL');
+  if ([artistIndex, titleIndex, yearIndex, urlIndex].includes(-1)) return [];
   const seen = new Set<string>();
   return lines.flatMap(line => {
-    const [artist, title, year, url] = row(line);
+    const values = row(line);
+    const artist = values[artistIndex];
+    const title = values[titleIndex];
+    const year = values[yearIndex];
+    const url = values[urlIndex];
     const id = trackId(url ?? '');
     const parsedYear = Number(year);
     if (!id || !artist || !title || !Number.isInteger(parsedYear) || seen.has(id)) return [];

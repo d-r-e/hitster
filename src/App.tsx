@@ -12,15 +12,24 @@ import './App.css';
 type Ack = { ok: boolean; error?: string; songUri?: string; finished?: boolean };
 type T = (key: MessageKey, variables?: Record<string, string | number>) => string;
 const apiUrl = import.meta.env.VITE_API_URL ?? window.location.origin;
+const requestedRoomCode = () => new URLSearchParams(location.search).get('room')?.toUpperCase() ?? '';
 
 export default function App() {
   const { locale, setLocale, t } = useI18n();
   const tRef = useRef(t);
   tRef.current = t;
-  const [session, setSession] = useState<Session | null>(loadSession());
+  const [session, setSession] = useState<Session | null>(() => {
+    const savedSession = loadSession();
+    const roomCodeFromUrl = requestedRoomCode();
+    if (savedSession && roomCodeFromUrl && savedSession.roomCode.toUpperCase() !== roomCodeFromUrl) {
+      clearSession();
+      return null;
+    }
+    return savedSession;
+  });
   const [state, setState] = useState<GameState | null>(null);
   const [nickname, setNickname] = useState('');
-  const [roomCode, setRoomCode] = useState(new URLSearchParams(location.search).get('room')?.toUpperCase() ?? '');
+  const [roomCode, setRoomCode] = useState(requestedRoomCode);
   const [notice, setNotice] = useState('');
   const [socket, setSocket] = useState<Socket | null>(null);
   const [currentDjUri, setCurrentDjUri] = useState<string | null>(null);
@@ -35,6 +44,21 @@ export default function App() {
 
   useEffect(() => { finishSpotifyCallback().then(done => done && setNotice(tRef.current('spotifyConnected'))).catch(() => setNotice(tRef.current('spotifyLoginFailed'))); }, []);
   useEffect(() => { document.documentElement.lang = locale; }, [locale]);
+  useEffect(() => {
+    const handleRoomUrlChange = () => {
+      const nextRoomCode = requestedRoomCode();
+      setRoomCode(nextRoomCode);
+      setSession(currentSession => {
+        if (!currentSession || !nextRoomCode || currentSession.roomCode.toUpperCase() === nextRoomCode) return currentSession;
+        clearSession();
+        setState(null);
+        setCurrentDjUri(null);
+        return null;
+      });
+    };
+    window.addEventListener('popstate', handleRoomUrlChange);
+    return () => window.removeEventListener('popstate', handleRoomUrlChange);
+  }, []);
   useEffect(() => {
     if (!sessionRoomCode || !sessionPlayerId || !sessionPlayerToken) return;
     rejoinRoom(sessionRoomCode, sessionPlayerId, sessionPlayerToken).then(result => setState(result.state)).catch(() => { clearSession(); setSession(null); });
@@ -114,7 +138,7 @@ function LanguageToggle({ locale, setLocale }: { locale: Locale; setLocale: (loc
 
 function Landing({ nickname, setNickname, roomCode, setRoomCode, create, join, notice, locale, setLocale, t }: { nickname: string; setNickname: (value: string) => void; roomCode: string; setRoomCode: (value: string) => void; create: () => void; join: () => void; notice: string; locale: Locale; setLocale: (locale: Locale) => void; t: T }) {
   const viaLink = Boolean(roomCode);
-  return <main className="landing"><LanguageToggle {...{ locale, setLocale }} /><div className="brand"><span>♫</span><h1>HITSTER</h1><p>{t('tagline')}</p></div><section className="panel"><label>{t('nickname')}<input value={nickname} maxLength={24} onChange={event => setNickname(event.target.value)} placeholder={t('nicknamePlaceholder')} /></label>{!viaLink && <button className="primary" onClick={create}>{t('createRoom')}</button>}{!viaLink && <div className="divider">{t('orJoin')}</div>}<label>{t('roomCode')}<input value={roomCode} maxLength={6} onChange={event => setRoomCode(event.target.value.toUpperCase())} placeholder="ABC123" /></label><button disabled={!roomCode} onClick={join}>{t('joinRoom')}</button>{notice && <p className="notice">{notice}</p>}</section></main>;
+  return <main className="landing"><LanguageToggle {...{ locale, setLocale }} /><div className="brand"><span>♫</span><h1>HITSTER</h1><p>{t('tagline')}</p></div><section className="panel"><label>{t('nickname')}<input value={nickname} maxLength={24} onChange={event => setNickname(event.target.value)} placeholder={t('nicknamePlaceholder')} /></label>{!viaLink && <button className="primary" onClick={create}>{t('createRoom')}</button>}{!viaLink && <div className="divider">{t('orJoin')}</div>}<label>{t('roomCode')}<input value={roomCode} maxLength={3} onChange={event => setRoomCode(event.target.value.toUpperCase())} placeholder="ABC" /></label><button disabled={!roomCode} onClick={join}>{t('joinRoom')}</button>{notice && <p className="notice">{notice}</p>}</section></main>;
 }
 
 function Game({ state, playerId, controlledPlayerIds, isHost, notice, spotify, startRound, retryPlayback, replaceSong, action, addPlayerOnDevice, connectSpotify, disconnectSpotify: disconnect, leave, shareRoom, locale, setLocale, t }: { state: GameState; playerId: string; controlledPlayerIds: string[]; isHost: boolean; notice: string; spotify: ReturnType<typeof useSpotifyPlayer>; startRound: () => void; retryPlayback: () => void; replaceSong: () => void; action: (event: string, ...args: unknown[]) => Promise<Ack>; addPlayerOnDevice: (nickname: string) => Promise<void>; connectSpotify: () => Promise<void>; disconnectSpotify: () => void; leave: () => void; shareRoom: () => Promise<void>; locale: Locale; setLocale: (locale: Locale) => void; t: T }) {

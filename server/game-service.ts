@@ -13,7 +13,7 @@ type Room = {
   lastResult?: { playerId: string; correct: boolean; cardOwnerId: string; titleTokenAwarded?: boolean; guaranteed?: boolean };
 };
 
-const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const ROOM_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ';
 const MAX_PLAYERS = 8;
 const MAX_ROOMS = 500;
 const WINNING_SCORE = 10;
@@ -35,7 +35,7 @@ export class GameService {
 
   private roomCode() {
     let code: string;
-    do code = Array.from(randomBytes(6), b => ROOM_ALPHABET[b % ROOM_ALPHABET.length]).join('');
+    do code = Array.from(randomBytes(3), b => ROOM_ALPHABET[b % ROOM_ALPHABET.length]).join('');
     while (this.rooms.has(code));
     return code!;
   }
