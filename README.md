@@ -46,3 +46,7 @@ npm start                 # serve API, Socket.IO, and built client on port 3001
 ```
 
 The production Node server serves `dist/` and Socket.IO from one origin. Static-only hosting such as GitHub Pages cannot run the multiplayer server.
+
+## Production security
+
+Serve the app only behind HTTPS and set `CLIENT_ORIGIN` to the exact public origin (for example, `https://hitster.example.com`). The bundled Nginx service is intentionally bound to localhost; put a TLS-terminating reverse proxy in front of it. Do not expose `npm run dev` to a network.

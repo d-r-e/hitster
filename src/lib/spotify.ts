@@ -3,6 +3,7 @@ const REDIRECT_URI = (import.meta.env.VITE_SPOTIFY_REDIRECT_URI as string | unde
 const TOKEN_KEY = 'hitster-spotify-tokens';
 const VERIFIER_KEY = 'hitster-spotify-verifier';
 const RETURN_URL_KEY = 'hitster-spotify-return-url';
+const STATE_KEY = 'hitster-spotify-state';
 const SCOPES = ['streaming', 'user-read-private', 'user-read-playback-state', 'user-modify-playback-state'].join(' ');
 
 function errorDetail(error: unknown) {
@@ -40,12 +41,12 @@ async function challengeFor(verifier: string) {
 }
 
 function readTokens(): SpotifyTokens | null {
-  try { return JSON.parse(localStorage.getItem(TOKEN_KEY) ?? 'null'); }
+  try { return JSON.parse(sessionStorage.getItem(TOKEN_KEY) ?? 'null'); }
   catch { return null; }
 }
 
 function writeTokens(tokens: SpotifyTokens) {
-  localStorage.setItem(TOKEN_KEY, JSON.stringify(tokens));
+  sessionStorage.setItem(TOKEN_KEY, JSON.stringify(tokens));
 }
 
 export function spotifyConfigured() {
@@ -60,14 +61,17 @@ export async function redirectToSpotify() {
   if (!CLIENT_ID) throw new Error('VITE_SPOTIFY_CLIENT_ID is not configured.');
   try {
     const verifier = randomString(96);
+    const state = randomString(32);
     const challenge = await challengeFor(verifier);
-    localStorage.setItem(VERIFIER_KEY, verifier);
-    localStorage.setItem(RETURN_URL_KEY, `${window.location.pathname}${window.location.search}`);
+    sessionStorage.setItem(VERIFIER_KEY, verifier);
+    sessionStorage.setItem(STATE_KEY, state);
+    sessionStorage.setItem(RETURN_URL_KEY, `${window.location.pathname}${window.location.search}`);
     const params = new URLSearchParams({
       client_id: CLIENT_ID,
       response_type: 'code',
       redirect_uri: REDIRECT_URI,
       scope: SCOPES,
+      state,
       code_challenge_method: 'S256',
       code_challenge: challenge,
     });
@@ -82,13 +86,16 @@ let callbackPromise: Promise<boolean> | null = null;
 async function processSpotifyCallback() {
   const params = new URLSearchParams(window.location.search);
   const code = params.get('code');
+  const callbackState = params.get('state');
   const oauthError = params.get('error');
   const oauthDescription = params.get('error_description');
   if (oauthError) throw new Error(`Spotify authorization failed: ${oauthError}${oauthDescription ? ` — ${oauthDescription}` : ''}. Redirect URI: ${REDIRECT_URI}`);
   if (!code) return false;
   if (!CLIENT_ID) throw new Error('VITE_SPOTIFY_CLIENT_ID is not configured.');
-  const verifier = localStorage.getItem(VERIFIER_KEY);
+  const verifier = sessionStorage.getItem(VERIFIER_KEY);
+  const expectedState = sessionStorage.getItem(STATE_KEY);
   if (!verifier) throw new Error('Spotify login session expired. Try connecting again.');
+  if (!callbackState || !expectedState || callbackState !== expectedState) { disconnectSpotify(); throw new Error('Spotify login state did not match. Try connecting again.'); }
   const response = await fetch('https://accounts.spotify.com/api/token', {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -97,9 +104,9 @@ async function processSpotifyCallback() {
   if (!response.ok) throw new Error(`Spotify did not accept the authorization callback (${await spotifyErrorResponse(response)}). Confirm that ${REDIRECT_URI} exactly matches a Redirect URI in the Spotify Dashboard.`);
   const data = await response.json();
   writeTokens({ accessToken: data.access_token, refreshToken: data.refresh_token, expiresAt: Date.now() + data.expires_in * 1000 });
-  localStorage.removeItem(VERIFIER_KEY);
-  const returnUrl = localStorage.getItem(RETURN_URL_KEY) ?? '/';
-  localStorage.removeItem(RETURN_URL_KEY);
+  sessionStorage.removeItem(VERIFIER_KEY); sessionStorage.removeItem(STATE_KEY);
+  const returnUrl = sessionStorage.getItem(RETURN_URL_KEY) ?? '/';
+  sessionStorage.removeItem(RETURN_URL_KEY);
   window.history.replaceState({}, '', returnUrl);
   return true;
 }
@@ -129,7 +136,7 @@ export async function getSpotifyAccessToken() {
 }
 
 export function disconnectSpotify() {
-  localStorage.removeItem(TOKEN_KEY);
+  sessionStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(VERIFIER_KEY); sessionStorage.removeItem(STATE_KEY); sessionStorage.removeItem(RETURN_URL_KEY);
 }
 
 export async function spotifyRequest(path: string, init: RequestInit = {}) {

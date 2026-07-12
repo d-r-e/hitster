@@ -1,11 +1,9 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="alternate icon" href="/favicon.ico" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#0a0015" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -22,26 +20,6 @@
     <link rel="preconnect" href="https://api.spotify.com" />
     <link rel="preconnect" href="https://accounts.spotify.com" />
     
-    <!-- GitHub Pages SPA redirect handler -->
-    <script>
-      // Handle redirect from 404.html
-      (function() {
-        var params = new URLSearchParams(window.location.search);
-        var redirect = params.get('redirect');
-        
-        if (redirect) {
-          // Remove the redirect parameter
-          params.delete('redirect');
-          
-          // Construct the new URL with the original path
-          var newSearch = params.toString();
-          var newUrl = '/' + redirect + (newSearch ? '?' + newSearch : '') + window.location.hash;
-          
-          // Replace the current history entry
-          window.history.replaceState(null, null, newUrl);
-        }
-      })();
-    </script>
   </head>
   <body>
     <div id="root"></div>

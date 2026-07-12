@@ -48,6 +48,19 @@ test('the active player can change their selected position before confirming', (
   assert.equal(room.phase, 'revealed');
 });
 
+test('a HITSTER challenge does not prevent the active player from moving their placement', () => {
+  const game = new GameService(catalog());
+  const { room, player: host } = game.createRoom('Host');
+  const { player: guest } = game.joinRoom(room.code, 'Guest');
+  game.start(room.code, host.id); game.beginRound(room.code, host.id);
+  const active = room.players[room.activeIndex];
+  const challenger = active.id === host.id ? guest : host;
+  game.selectPosition(room.code, active.id, 0);
+  game.challengePosition(room.code, challenger.id, 1);
+  game.selectPosition(room.code, active.id, 1);
+  assert.equal(room.placement, 1);
+});
+
 test('a wrong guess earns no disc but is corrected onto the player board', () => {
   const game = new GameService(catalog([1960, 2020]));
   const { room, player } = game.createRoom('DJ');
@@ -82,6 +95,29 @@ test('a reconnect cancels host disconnect expiry', () => {
   game.reconnect(room.code, player.id, player.token);
   assert.equal(game.expireDisconnect(room.code, player.id, disconnected.disconnectedAt), undefined);
   assert.notEqual(room.phase, 'interrupted');
+});
+
+test('an expired guest is removed and their active round is safely skipped', () => {
+  const game = new GameService(catalog());
+  const { room, player: host } = game.createRoom('Host');
+  const { player: guest } = game.joinRoom(room.code, 'Guest');
+  game.start(room.code, host.id); room.activeIndex = room.players.findIndex(player => player.id === guest.id);
+  game.beginRound(room.code, host.id);
+  const disconnected = game.disconnect(room.code, guest.id)!;
+  const updated = game.expireDisconnect(room.code, guest.id, disconnected.disconnectedAt)!;
+  assert.equal(updated.players.length, 1);
+  assert.equal(updated.phase, 'ready');
+  assert.equal(updated.players[updated.activeIndex].id, host.id);
+});
+
+test('an exhausted deck finishes the game instead of failing mid-round', () => {
+  const game = new GameService(catalog([1960, 1970]));
+  const { room, player } = game.createRoom('DJ');
+  game.start(room.code, player.id); game.beginRound(room.code, player.id);
+  game.selectPosition(room.code, player.id, 0); game.confirmPosition(room.code, player.id);
+  game.beginRound(room.code, player.id);
+  assert.equal(room.phase, 'finished');
+  assert.equal(room.winnerId, player.id);
 });
 
 test('a verbal title and artist claim earns one token even after a wrong placement', () => {
