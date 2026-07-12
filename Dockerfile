@@ -23,7 +23,7 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/server ./server
 COPY --from=build /app/shared ./shared
-COPY --from=build /app/songs.csv ./songs.csv
+COPY --from=build /app/songs ./songs
 COPY --from=build /app/dist ./dist
 
 EXPOSE 3001

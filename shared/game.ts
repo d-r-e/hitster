@@ -23,6 +23,12 @@ export interface PublicPlayer {
   timeline: TimelineCard[];
 }
 
+export interface SongPackMeta {
+  id: string;
+  name: string;
+  count: number;
+}
+
 export interface RoundResult {
   playerId: string;
   correct: boolean;
@@ -44,6 +50,9 @@ export interface GameState {
   hostPlayerId: string;
   round: number;
   winningScore: number;
+  availablePacks?: SongPackMeta[];
+  selectedPackIds?: string[];
+  selectedSongCount?: number;
   selectedPosition?: number;
   titleClaimed?: boolean;
   challenges?: PublicChallenge[];

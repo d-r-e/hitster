@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Server, type Socket } from 'socket.io';
-import { loadCatalog } from './catalog.js';
+import { loadPacks } from './catalog.js';
 import { GameService } from './game-service.js';
 
 type Ack = (result: { ok: boolean; error?: string; songUri?: string; finished?: boolean; playerId?: string }) => void;
@@ -17,7 +17,7 @@ const io = new Server(httpServer, {
   allowRequest: (request, callback) => callback(null, isAllowedOrigin(request.headers.origin)),
   maxHttpBufferSize: 16_384,
 });
-const games = new GameService(loadCatalog());
+const games = new GameService(loadPacks());
 const port = Number(process.env.PORT ?? 3001);
 const dist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist');
 const requests = new Map<string, { count: number; resetAt: number }>();
@@ -142,6 +142,10 @@ io.on('connection', socket => {
   const { room } = games.reconnect(roomCode, playerId, (socket.handshake.auth as Auth).playerToken as string);
   socket.join(`room:${room.code}`); socket.join(`player:${playerId}`); publish(room);
   event(socket, 'start_game', () => ({ room: games.start(room.code, playerId) }));
+  event(socket, 'set_packs', (ids) => {
+    const selected = Array.isArray(ids) ? ids.filter(id => typeof id === 'string') : [];
+    return { room: games.setPacks(room.code, playerId, selected) };
+  });
   event(socket, 'start_round', () => {
     const next = games.beginRound(room.code, playerId);
     return { room: next, songUri: next.currentSong?.spotifyUri, finished: next.phase === 'finished' };

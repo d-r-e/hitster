@@ -1,11 +1,13 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { GameState, PublicPlayer, Song } from '../shared/game.js';
+import type { SongPack } from './catalog.js';
 
 type Player = PublicPlayer & { token: string; controllerId?: string; disconnectedAt?: number };
 type Room = {
   code: string; players: Player[]; deck: Song[]; phase: GameState['phase'];
   activeIndex: number; round: number; currentSong?: Song; placement?: number;
   winnerId?: string; message?: string; titleClaimed?: boolean;
+  selectedPackIds: string[];
   challenges: Array<{ playerId: string; position: number }>;
   lastResult?: { playerId: string; correct: boolean; cardOwnerId: string; titleTokenAwarded?: boolean; guaranteed?: boolean };
 };
@@ -15,6 +17,7 @@ const MAX_PLAYERS = 8;
 const MAX_ROOMS = 500;
 const WINNING_SCORE = 10;
 const MAX_TOKENS = 5;
+const MIN_SONGS_PER_PLAYER = 20;
 
 const shuffle = <T>(items: T[]) => {
   const shuffled = [...items];
@@ -27,7 +30,7 @@ const shuffle = <T>(items: T[]) => {
 
 export class GameService {
   private rooms = new Map<string, Room>();
-  constructor(private readonly catalog: Song[]) {}
+  constructor(private readonly packs: SongPack[]) {}
 
   private roomCode() {
     let code: string;
@@ -36,13 +39,42 @@ export class GameService {
     return code!;
   }
 
+  /** Songs available across the packs the host selected, deduplicated by track id. */
+  private songsFor(room: Room): Song[] {
+    const selected = new Set(room.selectedPackIds);
+    const seen = new Set<string>();
+    const songs: Song[] = [];
+    for (const pack of this.packs) {
+      if (!selected.has(pack.id)) continue;
+      for (const song of pack.songs) {
+        if (seen.has(song.id)) continue;
+        seen.add(song.id);
+        songs.push(song);
+      }
+    }
+    return songs;
+  }
+
+  private selectedCount(room: Room): number {
+    return this.songsFor(room).length;
+  }
+
   createRoom(nickname: string) {
     if (this.rooms.size >= MAX_ROOMS) throw new Error('The server is busy. Please try again shortly.');
     const code = this.roomCode();
     const player = this.newPlayer(nickname, true);
-    const room: Room = { code, players: [player], deck: shuffle(this.catalog), phase: 'lobby', activeIndex: 0, round: 0, challenges: [] };
+    const room: Room = { code, players: [player], deck: [], phase: 'lobby', activeIndex: 0, round: 0, challenges: [], selectedPackIds: this.packs.map(pack => pack.id) };
     this.rooms.set(code, room);
     return { player, room };
+  }
+
+  setPacks(code: string, playerId: string, ids: string[]) {
+    const room = this.requireHost(code, playerId);
+    if (room.phase !== 'lobby') throw new Error('Song packs can only be changed before the game starts.');
+    const valid = new Set(this.packs.map(pack => pack.id));
+    const next = [...new Set(ids.filter(id => valid.has(id)))];
+    room.selectedPackIds = next.length ? next : [...valid];
+    return room;
   }
 
   joinRoom(code: string, nickname: string) {
@@ -124,7 +156,9 @@ export class GameService {
   start(code: string, playerId: string) {
     const room = this.requireHost(code, playerId);
     if (room.players.length < 1) throw new Error('At least one player is needed.');
-    if (room.deck.length < room.players.length + 1) throw new Error('Not enough songs in the deck.');
+    const songs = this.songsFor(room);
+    if (songs.length < room.players.length * MIN_SONGS_PER_PLAYER) throw new Error(`Select at least ${MIN_SONGS_PER_PLAYER} songs per player.`);
+    room.deck = shuffle(songs);
     room.players.forEach(player => {
       const song = this.draw(room);
       player.timeline = [{ id: randomUUID(), song }]; player.score = 0; player.tokens = 2;
@@ -253,6 +287,9 @@ export class GameService {
     const canSeeAnswer = room.phase === 'adjudicating' || room.phase === 'revealed' || room.phase === 'finished';
     return {
       roomCode: room.code, phase: room.phase, players: room.players.map(player => ({ id: player.id, nickname: player.nickname, isHost: player.isHost, connected: player.connected, score: player.score, tokens: player.tokens, timeline: player.timeline })),
+      availablePacks: this.packs.map(pack => ({ id: pack.id, name: pack.name, count: pack.songs.length })),
+      selectedPackIds: room.selectedPackIds,
+      selectedSongCount: this.selectedCount(room),
       activePlayerId: room.phase === 'lobby' || room.phase === 'interrupted' ? null : this.active(room).id,
       hostPlayerId: room.players.find(player => player.isHost)!.id, round: room.round, winningScore: WINNING_SCORE,
       ...(canSeeAnswer && room.currentSong ? { currentSong: room.currentSong } : {}),

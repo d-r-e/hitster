@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import type { Song } from '../shared/game.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const songsDir = path.join(root, 'songs');
 
 function csvCell(value: string) {
   return value.trim().replace(/^"|"$/g, '').replace(/""/g, '"');
@@ -27,8 +28,7 @@ function row(line: string) {
   return values;
 }
 
-export function loadCatalog(): Song[] {
-  const file = path.join(root, 'songs.csv');
+function parseCsv(file: string): Song[] {
   const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/).filter(Boolean).slice(1);
   const seen = new Set<string>();
   return lines.flatMap(line => {
@@ -39,4 +39,26 @@ export function loadCatalog(): Song[] {
     seen.add(id);
     return [{ id, artist, title, year: parsedYear, spotifyUri: `spotify:track:${id}` }];
   });
+}
+
+/** Turns a pack filename like `02_Pop_hits.csv` into a friendly label ("Pop hits"). */
+function packName(file: string) {
+  return path.basename(file, '.csv').replace(/^\d+_/, '').replace(/_/g, ' ');
+}
+
+export interface SongPack {
+  id: string;
+  name: string;
+  songs: Song[];
+}
+
+export function loadPacks(): SongPack[] {
+  if (!fs.existsSync(songsDir)) return [];
+  return fs.readdirSync(songsDir)
+    .filter(file => file.endsWith('.csv') && !file.startsWith('.'))
+    .sort()
+    .map(file => {
+      const id = path.basename(file, '.csv');
+      return { id, name: packName(file), songs: parseCsv(path.join(songsDir, file)) };
+    });
 }

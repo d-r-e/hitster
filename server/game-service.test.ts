@@ -3,12 +3,14 @@ import test from 'node:test';
 import type { Song } from '../shared/game.js';
 import { GameService } from './game-service.js';
 
-function catalog(years = [1960, 1970, 1980, 1990, 2000, 2010, 2020]) {
-  return years.map((year, index): Song => ({ id: `song-${index}`, artist: `Artist ${index}`, title: `Song ${index}`, year, spotifyUri: `spotify:track:${index}` }));
+const baseYears = [1960, 1970, 1980, 1990, 2000, 2010, 2020];
+
+function packs(years = [...baseYears, ...baseYears, ...baseYears, ...baseYears, ...baseYears, ...baseYears, ...baseYears, ...baseYears, ...baseYears]) {
+  return [{ id: 'all', name: 'All', songs: years.map((year, index): Song => ({ id: `song-${index}`, artist: `Artist ${index}`, title: `Song ${index}`, year, spotifyUri: `spotify:track:${index}` })) }];
 }
 
 test('a solo DJ can complete a hidden listen/place/confirm loop', () => {
-  const game = new GameService(catalog());
+  const game = new GameService(packs());
   const { room, player } = game.createRoom('Solo DJ');
   game.start(room.code, player.id);
   game.beginRound(room.code, player.id);
@@ -27,7 +29,7 @@ test('a solo DJ can complete a hidden listen/place/confirm loop', () => {
 });
 
 test('same-year songs are valid on either side', () => {
-  const game = new GameService(catalog([2000, 2000, 2000]));
+  const game = new GameService(packs(Array.from({ length: 21 }, () => 2000)));
   const { room, player } = game.createRoom('DJ');
   game.start(room.code, player.id); game.beginRound(room.code, player.id);
   game.selectPosition(room.code, player.id, 0); game.confirmPosition(room.code, player.id);
@@ -36,7 +38,7 @@ test('same-year songs are valid on either side', () => {
 });
 
 test('the active player can change their selected position before confirming', () => {
-  const game = new GameService(catalog());
+  const game = new GameService(packs());
   const { room, player } = game.createRoom('DJ');
   game.start(room.code, player.id); game.beginRound(room.code, player.id);
   game.selectPosition(room.code, player.id, 0);
@@ -49,7 +51,7 @@ test('the active player can change their selected position before confirming', (
 });
 
 test('a HITSTER challenge does not prevent the active player from moving their placement', () => {
-  const game = new GameService(catalog());
+  const game = new GameService(packs());
   const { room, player: host } = game.createRoom('Host');
   const { player: guest } = game.joinRoom(room.code, 'Guest');
   game.start(room.code, host.id); game.beginRound(room.code, host.id);
@@ -62,7 +64,7 @@ test('a HITSTER challenge does not prevent the active player from moving their p
 });
 
 test('a wrong guess earns no disc but is corrected onto the player board', () => {
-  const game = new GameService(catalog([1960, 2020]));
+  const game = new GameService(packs(Array.from({ length: 21 }, (_, index) => 1960 + index * 3)));
   const { room, player } = game.createRoom('DJ');
   game.start(room.code, player.id); game.beginRound(room.code, player.id);
   const songYear = room.currentSong!.year;
@@ -70,12 +72,13 @@ test('a wrong guess earns no disc but is corrected onto the player board', () =>
   const wrongPosition = songYear < existingYear ? 1 : 0;
   game.selectPosition(room.code, player.id, wrongPosition); game.confirmPosition(room.code, player.id);
   assert.equal(room.players[0].score, 0);
-  assert.deepEqual(room.players[0].timeline.map(card => card.song.year), [1960, 2020]);
+  const years = room.players[0].timeline.map(card => card.song.year);
+  assert.deepEqual(years, [...years].sort((a, b) => a - b));
   assert.equal(game.state(room).lastResult?.correct, false);
 });
 
 test('only the active player can select and confirm', () => {
-  const game = new GameService(catalog());
+  const game = new GameService(packs());
   const { room, player: host } = game.createRoom('Host');
   const { player: guest } = game.joinRoom(room.code, 'Guest');
   game.start(room.code, host.id); game.beginRound(room.code, host.id);
@@ -88,7 +91,7 @@ test('only the active player can select and confirm', () => {
 });
 
 test('a device can add and control local players while other sessions cannot', () => {
-  const game = new GameService(catalog());
+  const game = new GameService(packs());
   const { room, player: host } = game.createRoom('Host');
   const { player: local } = game.addLocalPlayer(room.code, host.id, host.token, 'Local player');
   const { player: remote } = game.joinRoom(room.code, 'Remote');
@@ -102,7 +105,7 @@ test('a device can add and control local players while other sessions cannot', (
 });
 
 test('a reconnect cancels host disconnect expiry', () => {
-  const game = new GameService(catalog());
+  const game = new GameService(packs());
   const { room, player } = game.createRoom('Host');
   game.start(room.code, player.id);
   const disconnected = game.disconnect(room.code, player.id)!;
@@ -112,7 +115,7 @@ test('a reconnect cancels host disconnect expiry', () => {
 });
 
 test('an expired guest is removed and their active round is safely skipped', () => {
-  const game = new GameService(catalog());
+  const game = new GameService(packs());
   const { room, player: host } = game.createRoom('Host');
   const { player: guest } = game.joinRoom(room.code, 'Guest');
   game.start(room.code, host.id); room.activeIndex = room.players.findIndex(player => player.id === guest.id);
@@ -125,17 +128,22 @@ test('an expired guest is removed and their active round is safely skipped', () 
 });
 
 test('an exhausted deck finishes the game instead of failing mid-round', () => {
-  const game = new GameService(catalog([1960, 1970]));
+  const game = new GameService(packs(Array.from({ length: 60 }, (_, index) => 1960 + index * 2)));
   const { room, player } = game.createRoom('DJ');
-  game.start(room.code, player.id); game.beginRound(room.code, player.id);
-  game.selectPosition(room.code, player.id, 0); game.confirmPosition(room.code, player.id);
-  game.beginRound(room.code, player.id);
+  game.start(room.code, player.id);
+  let guard = 0;
+  while (room.phase !== 'finished' && guard < 200) {
+    const updated = game.beginRound(room.code, player.id);
+    if (updated.phase === 'finished') break;
+    game.selectPosition(room.code, player.id, 0); game.confirmPosition(room.code, player.id);
+    guard += 1;
+  }
   assert.equal(room.phase, 'finished');
   assert.equal(room.winnerId, player.id);
 });
 
 test('a verbal title and artist claim earns one token even after a wrong placement', () => {
-  const game = new GameService(catalog([1960, 2020, 2000]));
+  const game = new GameService(packs(Array.from({ length: 21 }, (_, index) => [1960, 2000, 2020][index % 3])));
   const { room, player: host } = game.createRoom('DJ');
   game.start(room.code, host.id); game.beginRound(room.code, host.id);
   const active = room.players[room.activeIndex];
@@ -151,7 +159,7 @@ test('a verbal title and artist claim earns one token even after a wrong placeme
 });
 
 test('spending one token skips the current song before any guess', () => {
-  const game = new GameService(catalog());
+  const game = new GameService(packs());
   const { room, player } = game.createRoom('DJ');
   game.start(room.code, player.id); game.beginRound(room.code, player.id);
   const previousSong = room.currentSong!.id;
@@ -161,7 +169,7 @@ test('spending one token skips the current song before any guess', () => {
 });
 
 test('a correct HITSTER challenge steals the song and spends one token', () => {
-  const game = new GameService(catalog());
+  const game = new GameService(packs());
   const { room, player: host } = game.createRoom('Host');
   game.joinRoom(room.code, 'Challenger');
   game.start(room.code, host.id); game.beginRound(room.code, host.id);
@@ -180,7 +188,7 @@ test('a correct HITSTER challenge steals the song and spends one token', () => {
 });
 
 test('three tokens buy a guaranteed song and one point before listening', () => {
-  const game = new GameService(catalog());
+  const game = new GameService(packs());
   const { room, player } = game.createRoom('DJ');
   game.start(room.code, player.id);
   room.players[0].tokens = 3;
@@ -189,4 +197,43 @@ test('three tokens buy a guaranteed song and one point before listening', () => 
   assert.equal(room.players[0].score, 1);
   assert.equal(room.players[0].timeline.length, 2);
   assert.equal(room.lastResult?.guaranteed, true);
+});
+
+test('a room selects every pack by default and reports its song count', () => {
+  const game = new GameService([
+    { id: 'a', name: 'A', songs: [{ id: 'a1', artist: 'x', title: 'x', year: 2000, spotifyUri: 'spotify:track:a1' }] },
+    { id: 'b', name: 'B', songs: [{ id: 'b1', artist: 'y', title: 'y', year: 2010, spotifyUri: 'spotify:track:b1' }] },
+  ]);
+  const { room } = game.createRoom('Host');
+  assert.deepEqual(room.selectedPackIds, ['a', 'b']);
+  assert.equal(game.state(room).selectedSongCount, 2);
+});
+
+test('the host can change packs and the game enforces 20 songs per player', () => {
+  const game = new GameService([
+    { id: 'a', name: 'A', songs: Array.from({ length: 30 }, (_, index) => ({ id: `a${index}`, artist: 'x', title: 'x', year: 1960 + index, spotifyUri: `spotify:track:a${index}` })) },
+    { id: 'b', name: 'B', songs: Array.from({ length: 30 }, (_, index) => ({ id: `b${index}`, artist: 'y', title: 'y', year: 1960 + index, spotifyUri: `spotify:track:b${index}` })) },
+  ]);
+  const { room, player } = game.createRoom('Host');
+  game.setPacks(room.code, player.id, ['a']);
+  assert.deepEqual(room.selectedPackIds, ['a']);
+  assert.equal(game.state(room).selectedSongCount, 30);
+  game.joinRoom(room.code, 'Guest');
+  assert.throws(() => game.start(room.code, player.id), /20 songs per player/);
+  game.setPacks(room.code, player.id, ['a', 'b']);
+  assert.equal(game.state(room).selectedSongCount, 60);
+  game.start(room.code, player.id);
+  assert.equal(room.phase, 'ready');
+});
+
+test('packs can only be changed by the host while in the lobby', () => {
+  const game = new GameService([
+    { id: 'a', name: 'A', songs: Array.from({ length: 30 }, (_, index) => ({ id: `a${index}`, artist: 'x', title: 'x', year: 1960 + index, spotifyUri: `spotify:track:a${index}` })) },
+    { id: 'b', name: 'B', songs: Array.from({ length: 30 }, (_, index) => ({ id: `b${index}`, artist: 'y', title: 'y', year: 1960 + index, spotifyUri: `spotify:track:b${index}` })) },
+  ]);
+  const { room, player: host } = game.createRoom('Host');
+  const { player: guest } = game.joinRoom(room.code, 'Guest');
+  assert.throws(() => game.setPacks(room.code, guest.id, ['b']), /only the host/i);
+  game.start(room.code, host.id);
+  assert.throws(() => game.setPacks(room.code, host.id, ['b']), /before the game starts/);
 });
