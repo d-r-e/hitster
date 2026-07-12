@@ -118,6 +118,8 @@ header strong { display: block; font-family: 'Archivo Black'; font-size: 1rem; l
 .lobby { margin-top: 24px; }
 .lobby > p, .waiting { margin: 0; color: #cdbbd3; font-size: .75rem; }
 .player-rack { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; }
+.local-player-add { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 8px; }
+.local-player-add button { font-size: .68rem; }
 .player-piece { position: relative; display: grid; grid-template-columns: 30px 1fr auto; align-items: center; min-width: 0; gap: 7px; padding: 7px; border: 1px solid #604b69; border-radius: 8px; background: #1a1122; box-shadow: inset 0 2px 5px #0008; }
 .player-piece > span { overflow: hidden; text-overflow: ellipsis; font-size: .72rem; white-space: nowrap; }
 .player-piece small { color: #ffcd49; font-size: .55rem; font-weight: 900; }

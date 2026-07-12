@@ -87,6 +87,20 @@ test('only the active player can select and confirm', () => {
   game.confirmPosition(room.code, active);
 });
 
+test('a device can add and control local players while other sessions cannot', () => {
+  const game = new GameService(catalog());
+  const { room, player: host } = game.createRoom('Host');
+  const { player: local } = game.addLocalPlayer(room.code, host.id, host.token, 'Local player');
+  const { player: remote } = game.joinRoom(room.code, 'Remote');
+  game.start(room.code, host.id);
+  room.activeIndex = room.players.findIndex(player => player.id === local.id);
+  game.beginRound(room.code, host.id);
+  const localActor = game.controlledPlayerId(room.code, host.id, local.id);
+  game.selectPosition(room.code, localActor, 0);
+  assert.equal(room.placement, 0);
+  assert.throws(() => game.controlledPlayerId(room.code, remote.id, local.id), /cannot control/);
+});
+
 test('a reconnect cancels host disconnect expiry', () => {
   const game = new GameService(catalog());
   const { room, player } = game.createRoom('Host');
