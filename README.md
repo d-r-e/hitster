@@ -27,7 +27,7 @@ The local development Spotify configuration is read from `.env.dev` (`npm run de
 2. Wait for “Spotify DJ — Ready to play,” then start the game. Solo rooms are supported for testing.
 3. The DJ presses “Play next song.” The server selects the hidden track and playback starts on the DJ phone.
 4. Placement is available immediately when the song starts. Every phone shows the active player's vertical chart, but only that player can drag the mystery vinyl—or tap a slot—to place it.
-5. The DJ reveals. A correct position earns one disc; either way, the song remains on that player's board in chronological order.
+5. The DJ reveals. A correct position earns one disc. Easy mode discards failed songs; Difficult mode corrects them onto the board in chronological order.
 6. The sticky score bar updates for everyone. The first player to earn 10 discs wins.
 
 Each player starts with 2 HITSTER tokens and can hold at most 5. Naming the title and artist aloud earns one token after DJ validation, even if the timeline guess was wrong. Spend 1 to skip before guessing, spend 1 to challenge an opponent at a different slot before they confirm, or spend 3 before your turn to add a guaranteed song and point. A successful challenge steals the song and point.
@@ -42,6 +42,7 @@ npm run build             # production client build
 npm run typecheck:server  # server/shared TypeScript check
 npm test                  # game-engine tests
 npm run lint              # lint all source
+npm run validate:songs    # validate song years/URLs
 npm start                 # serve API, Socket.IO, and built client on port 3001
 ```
 

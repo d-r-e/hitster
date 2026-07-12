@@ -13,7 +13,8 @@
     "start": "tsx server/index.ts",
     "lint": "eslint .",
     "preview": "vite preview",
-    "generate-icons": "python3 scripts/generate-icons.py"
+    "generate-icons": "python3 scripts/generate-icons.py",
+    "validate:songs": "node scripts/validate-songs.mjs"
   },
   "dependencies": {
     "express": "^5.2.1",

@@ -264,7 +264,7 @@ export class GameService {
       cardOwner.timeline.splice(ownerPosition, 0, { id: randomUUID(), song });
     }
     if (correct || winningChallenge) cardOwner.score += 1;
-    room.lastResult = { playerId: active.id, correct, cardOwnerId: cardOwner.id };
+    room.lastResult = { playerId: active.id, correct, cardOwnerId: cardOwner.id, placement: position };
     room.message = correct ? `${active.nickname} placed it correctly!` : winningChallenge ? `${cardOwner.nickname} stole the song!` : appendFailedSong ? `${active.nickname}'s placement was corrected on the board.` : `${active.nickname} missed, so the song was discarded.`;
     room.placement = undefined;
     if (cardOwner.score >= WINNING_SCORE) { room.phase = 'finished'; room.winnerId = cardOwner.id; return room; }

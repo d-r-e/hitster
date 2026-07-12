@@ -34,6 +34,7 @@ export interface RoundResult {
   playerId: string;
   correct: boolean;
   cardOwnerId: string;
+  placement?: number;
   titleTokenAwarded?: boolean;
   guaranteed?: boolean;
 }
