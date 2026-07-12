@@ -113,7 +113,7 @@ function Game({ state, playerId, controlledPlayerIds, isHost, notice, spotify, s
   const boardOwner = (state.phase === 'revealed' || state.phase === 'adjudicating' || state.phase === 'finished') ? resultOwner ?? active : active ?? me;
   const canPlace = state.phase === 'placing' && Boolean(active && controlledPlayerIds.includes(active.id));
   const myChallenge = state.challenges?.find(challenge => challenge.playerId === playerId);
-  const canChallenge = state.phase === 'placing' && active?.id !== playerId && Boolean(me?.tokens) && state.selectedPosition !== undefined && !myChallenge;
+  const canChallenge = state.phase === 'placing' && !controlledPlayerIds.includes(active?.id ?? '') && Boolean(me?.tokens) && state.selectedPosition !== undefined && !myChallenge;
   const upcomingIndex = state.phase === 'ready' ? state.players.findIndex(player => player.id === state.activePlayerId) : state.phase === 'revealed' ? (state.players.findIndex(player => player.id === state.activePlayerId) + 1) % state.players.length : -1;
   const canBuy = upcomingIndex >= 0 && controlledPlayerIds.includes(state.players[upcomingIndex]?.id ?? '') && (state.players[upcomingIndex]?.tokens ?? 0) >= 3;
   const challengeAt = async (position: number) => { const result = await action('challenge_position', position); if (result.ok) setChallengeMode(false); };
