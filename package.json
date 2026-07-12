@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\"",
-    "dev:client": "vite",
+    "dev:client": "vite --mode dev",
     "dev:server": "tsx watch server/index.ts",
     "build": "tsc -b && vite build",
     "typecheck:server": "tsc -p tsconfig.server.json",

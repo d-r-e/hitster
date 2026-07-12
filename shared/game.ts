@@ -1,4 +1,5 @@
 export type GamePhase = 'lobby' | 'ready' | 'listening' | 'placing' | 'adjudicating' | 'revealed' | 'finished' | 'interrupted';
+export type GameDifficulty = 'easy' | 'difficult';
 
 export interface Song {
   id: string;
@@ -45,6 +46,7 @@ export interface PublicChallenge {
 export interface GameState {
   roomCode: string;
   phase: GamePhase;
+  difficulty: GameDifficulty;
   players: PublicPlayer[];
   activePlayerId: string | null;
   hostPlayerId: string;

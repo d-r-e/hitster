@@ -19,7 +19,7 @@ A mobile-first, real-time music timeline game for 1–8 players, available in Sp
 
 3. Open [http://127.0.0.1:5173](http://127.0.0.1:5173). Use `127.0.0.1`, not `localhost`, because OAuth storage and redirect origins must match.
 
-The repository's public Spotify client ID is configured in `.env.local`. For another Spotify application, copy `.env.example` and provide its client ID and an allow-listed redirect URI.
+The local development Spotify configuration is read from `.env.dev` (`npm run dev` starts Vite with `--mode dev`). For another Spotify application, copy `.env.example` to `.env.dev` and provide its client ID and an allow-listed redirect URI.
 
 ## Game loop
 

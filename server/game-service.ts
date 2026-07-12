@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import type { GameState, PublicPlayer, Song } from '../shared/game.js';
+import type { GameDifficulty, GameState, PublicPlayer, Song } from '../shared/game.js';
 import type { SongPack } from './catalog.js';
 
 type Player = PublicPlayer & { token: string; controllerId?: string; disconnectedAt?: number };
@@ -7,6 +7,7 @@ type Room = {
   code: string; players: Player[]; deck: Song[]; phase: GameState['phase'];
   activeIndex: number; round: number; currentSong?: Song; placement?: number;
   winnerId?: string; message?: string; titleClaimed?: boolean;
+  difficulty: GameDifficulty;
   selectedPackIds: string[];
   challenges: Array<{ playerId: string; position: number }>;
   lastResult?: { playerId: string; correct: boolean; cardOwnerId: string; titleTokenAwarded?: boolean; guaranteed?: boolean };
@@ -63,7 +64,7 @@ export class GameService {
     if (this.rooms.size >= MAX_ROOMS) throw new Error('The server is busy. Please try again shortly.');
     const code = this.roomCode();
     const player = this.newPlayer(nickname, true);
-    const room: Room = { code, players: [player], deck: [], phase: 'lobby', activeIndex: 0, round: 0, challenges: [], selectedPackIds: this.packs.map(pack => pack.id) };
+    const room: Room = { code, players: [player], deck: [], phase: 'lobby', difficulty: 'easy', activeIndex: 0, round: 0, challenges: [], selectedPackIds: this.packs.map(pack => pack.id) };
     this.rooms.set(code, room);
     return { player, room };
   }
@@ -74,6 +75,14 @@ export class GameService {
     const valid = new Set(this.packs.map(pack => pack.id));
     const next = [...new Set(ids.filter(id => valid.has(id)))];
     room.selectedPackIds = next.length ? next : [...valid];
+    return room;
+  }
+
+  setDifficulty(code: string, playerId: string, difficulty: GameDifficulty) {
+    const room = this.requireHost(code, playerId);
+    if (room.phase !== 'lobby') throw new Error('Difficulty can only be changed before the game starts.');
+    if (difficulty !== 'easy' && difficulty !== 'difficult') throw new Error('That difficulty is invalid.');
+    room.difficulty = difficulty;
     return room;
   }
 
@@ -249,11 +258,14 @@ export class GameService {
       return (challengeBefore === undefined || challengeBefore <= song.year) && (challengeAfter === undefined || song.year <= challengeAfter);
     }) : undefined;
     const cardOwner = winningChallenge ? room.players.find(player => player.id === winningChallenge.playerId)! : active;
-    const ownerPosition = winningChallenge ? this.sortedPosition(cardOwner.timeline, song.year) : correct ? position : this.sortedPosition(active.timeline, song.year);
-    cardOwner.timeline.splice(ownerPosition, 0, { id: randomUUID(), song });
+    const appendFailedSong = !correct && !winningChallenge && room.difficulty === 'difficult';
+    if (correct || winningChallenge || appendFailedSong) {
+      const ownerPosition = winningChallenge ? this.sortedPosition(cardOwner.timeline, song.year) : correct ? position : this.sortedPosition(active.timeline, song.year);
+      cardOwner.timeline.splice(ownerPosition, 0, { id: randomUUID(), song });
+    }
     if (correct || winningChallenge) cardOwner.score += 1;
     room.lastResult = { playerId: active.id, correct, cardOwnerId: cardOwner.id };
-    room.message = correct ? `${active.nickname} placed it correctly!` : winningChallenge ? `${cardOwner.nickname} stole the song!` : `${active.nickname}'s placement was corrected on the board.`;
+    room.message = correct ? `${active.nickname} placed it correctly!` : winningChallenge ? `${cardOwner.nickname} stole the song!` : appendFailedSong ? `${active.nickname}'s placement was corrected on the board.` : `${active.nickname} missed, so the song was discarded.`;
     room.placement = undefined;
     if (cardOwner.score >= WINNING_SCORE) { room.phase = 'finished'; room.winnerId = cardOwner.id; return room; }
     room.phase = room.titleClaimed ? 'adjudicating' : 'revealed';
@@ -286,7 +298,7 @@ export class GameService {
   state(room: Room): GameState {
     const canSeeAnswer = room.phase === 'adjudicating' || room.phase === 'revealed' || room.phase === 'finished';
     return {
-      roomCode: room.code, phase: room.phase, players: room.players.map(player => ({ id: player.id, nickname: player.nickname, isHost: player.isHost, connected: player.connected, score: player.score, tokens: player.tokens, timeline: player.timeline })),
+      roomCode: room.code, phase: room.phase, difficulty: room.difficulty, players: room.players.map(player => ({ id: player.id, nickname: player.nickname, isHost: player.isHost, connected: player.connected, score: player.score, tokens: player.tokens, timeline: player.timeline })),
       availablePacks: this.packs.map(pack => ({ id: pack.id, name: pack.name, count: pack.songs.length })),
       selectedPackIds: room.selectedPackIds,
       selectedSongCount: this.selectedCount(room),

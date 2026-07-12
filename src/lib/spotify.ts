@@ -4,6 +4,7 @@ const TOKEN_KEY = 'hitster-spotify-tokens';
 const VERIFIER_KEY = 'hitster-spotify-verifier';
 const RETURN_URL_KEY = 'hitster-spotify-return-url';
 const STATE_KEY = 'hitster-spotify-state';
+export const SPOTIFY_SESSION_CHANGED_EVENT = 'hitster-spotify-session-changed';
 const SCOPES = ['streaming', 'user-read-private', 'user-read-playback-state', 'user-modify-playback-state'].join(' ');
 
 function errorDetail(error: unknown) {
@@ -47,6 +48,7 @@ function readTokens(): SpotifyTokens | null {
 
 function writeTokens(tokens: SpotifyTokens) {
   sessionStorage.setItem(TOKEN_KEY, JSON.stringify(tokens));
+  window.dispatchEvent(new Event(SPOTIFY_SESSION_CHANGED_EVENT));
 }
 
 export function spotifyConfigured() {
@@ -58,11 +60,13 @@ export function hasSpotifySession() {
 }
 
 export async function redirectToSpotify() {
+  console.log('[Spotify] redirectToSpotify: starting login', { CLIENT_ID: Boolean(CLIENT_ID), REDIRECT_URI });
   if (!CLIENT_ID) throw new Error('VITE_SPOTIFY_CLIENT_ID is not configured.');
   try {
     const verifier = randomString(96);
     const state = randomString(32);
     const challenge = await challengeFor(verifier);
+    console.log('[Spotify] redirectToSpotify: generated PKCE', { state, challenge: challenge.slice(0, 12) + '…', hasSecureContext: window.isSecureContext, hasSubtle: Boolean(crypto?.subtle) });
     sessionStorage.setItem(VERIFIER_KEY, verifier);
     sessionStorage.setItem(STATE_KEY, state);
     sessionStorage.setItem(RETURN_URL_KEY, `${window.location.pathname}${window.location.search}`);
@@ -75,8 +79,10 @@ export async function redirectToSpotify() {
       code_challenge_method: 'S256',
       code_challenge: challenge,
     });
+    console.log('[Spotify] redirectToSpotify: redirecting to authorize', { url: `https://accounts.spotify.com/authorize?${params.toString().replace(/code_challenge=[^&]+/, 'code_challenge=…')}` });
     window.location.assign(`https://accounts.spotify.com/authorize?${params}`);
   } catch (error) {
+    console.error('[Spotify] redirectToSpotify: failed', error);
     throw new Error(`Could not start Spotify login. Redirect URI: ${REDIRECT_URI}. ${errorDetail(error)}`);
   }
 }
@@ -89,29 +95,36 @@ async function processSpotifyCallback() {
   const callbackState = params.get('state');
   const oauthError = params.get('error');
   const oauthDescription = params.get('error_description');
+  console.log('[Spotify] processSpotifyCallback: invoked', { hasCode: Boolean(code), hasState: Boolean(callbackState), error: oauthError, errorDescription: oauthDescription, search: window.location.search });
   if (oauthError) throw new Error(`Spotify authorization failed: ${oauthError}${oauthDescription ? ` — ${oauthDescription}` : ''}. Redirect URI: ${REDIRECT_URI}`);
-  if (!code) return false;
+  if (!code) { console.log('[Spotify] processSpotifyCallback: no code, not a callback'); return false; }
   if (!CLIENT_ID) throw new Error('VITE_SPOTIFY_CLIENT_ID is not configured.');
   const verifier = sessionStorage.getItem(VERIFIER_KEY);
   const expectedState = sessionStorage.getItem(STATE_KEY);
+  console.log('[Spotify] processSpotifyCallback: state check', { hasVerifier: Boolean(verifier), hasExpectedState: Boolean(expectedState), stateMatches: Boolean(callbackState && expectedState && callbackState === expectedState) });
   if (!verifier) throw new Error('Spotify login session expired. Try connecting again.');
   if (!callbackState || !expectedState || callbackState !== expectedState) { disconnectSpotify(); throw new Error('Spotify login state did not match. Try connecting again.'); }
+  console.log('[Spotify] processSpotifyCallback: exchanging code for tokens');
   const response = await fetch('https://accounts.spotify.com/api/token', {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ client_id: CLIENT_ID, grant_type: 'authorization_code', code, redirect_uri: REDIRECT_URI, code_verifier: verifier }),
   });
+  console.log('[Spotify] processSpotifyCallback: token response', { ok: response.ok, status: response.status });
   if (!response.ok) throw new Error(`Spotify did not accept the authorization callback (${await spotifyErrorResponse(response)}). Confirm that ${REDIRECT_URI} exactly matches a Redirect URI in the Spotify Dashboard.`);
   const data = await response.json();
+  console.log('[Spotify] processSpotifyCallback: tokens received', { hasAccessToken: Boolean(data.access_token), hasRefreshToken: Boolean(data.refresh_token), expiresIn: data.expires_in });
   writeTokens({ accessToken: data.access_token, refreshToken: data.refresh_token, expiresAt: Date.now() + data.expires_in * 1000 });
   sessionStorage.removeItem(VERIFIER_KEY); sessionStorage.removeItem(STATE_KEY);
   const returnUrl = sessionStorage.getItem(RETURN_URL_KEY) ?? '/';
   sessionStorage.removeItem(RETURN_URL_KEY);
   window.history.replaceState({}, '', returnUrl);
+  console.log('[Spotify] processSpotifyCallback: done, returnUrl', returnUrl);
   return true;
 }
 
 export function finishSpotifyCallback() {
+  console.log('[Spotify] finishSpotifyCallback: called', { alreadyRunning: Boolean(callbackPromise) });
   // React Strict Mode intentionally runs effects twice in development. A
   // Spotify authorization code is single-use, so share one token exchange.
   callbackPromise ??= processSpotifyCallback();
@@ -120,28 +133,35 @@ export function finishSpotifyCallback() {
 
 export async function getSpotifyAccessToken() {
   const tokens = readTokens();
+  console.log('[Spotify] getSpotifyAccessToken: called', { hasTokens: Boolean(tokens), expiresAt: tokens?.expiresAt, now: Date.now() });
   if (!tokens) throw new Error('Connect Spotify first.');
-  if (tokens.expiresAt > Date.now() + 60_000) return tokens.accessToken;
+  if (tokens.expiresAt > Date.now() + 60_000) { console.log('[Spotify] getSpotifyAccessToken: token still valid'); return tokens.accessToken; }
   if (!CLIENT_ID || !tokens.refreshToken) { disconnectSpotify(); throw new Error('Spotify login expired. Connect again.'); }
+  console.log('[Spotify] getSpotifyAccessToken: refreshing token');
   const response = await fetch('https://accounts.spotify.com/api/token', {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ client_id: CLIENT_ID, grant_type: 'refresh_token', refresh_token: tokens.refreshToken }),
   });
+  console.log('[Spotify] getSpotifyAccessToken: refresh response', { ok: response.ok, status: response.status });
   if (!response.ok) { const detail = await spotifyErrorResponse(response); disconnectSpotify(); throw new Error(`Spotify login refresh failed (${detail}). Connect again.`); }
   const data = await response.json();
   const refreshed = { accessToken: data.access_token, refreshToken: data.refresh_token ?? tokens.refreshToken, expiresAt: Date.now() + data.expires_in * 1000 };
   writeTokens(refreshed);
+  console.log('[Spotify] getSpotifyAccessToken: refreshed');
   return refreshed.accessToken;
 }
 
 export function disconnectSpotify() {
   sessionStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(VERIFIER_KEY); sessionStorage.removeItem(STATE_KEY); sessionStorage.removeItem(RETURN_URL_KEY);
+  window.dispatchEvent(new Event(SPOTIFY_SESSION_CHANGED_EVENT));
 }
 
 export async function spotifyRequest(path: string, init: RequestInit = {}) {
+  console.log('[Spotify] spotifyRequest:', init.method ?? 'GET', path);
   const token = await getSpotifyAccessToken();
   const response = await fetch(`https://api.spotify.com/v1${path}`, { ...init, headers: { ...init.headers, authorization: `Bearer ${token}`, 'content-type': 'application/json' } });
+  console.log('[Spotify] spotifyRequest: response', { method: init.method ?? 'GET', path, status: response.status });
   if (response.status === 401) throw new Error('Spotify login expired. Connect again.');
   if (response.status === 403) throw new Error('Spotify Premium is required for playback.');
   if (response.status === 429) throw new Error('Spotify is rate limiting playback. Wait a moment and retry.');

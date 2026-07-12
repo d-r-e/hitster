@@ -146,6 +146,7 @@ io.on('connection', socket => {
     const selected = Array.isArray(ids) ? ids.filter(id => typeof id === 'string') : [];
     return { room: games.setPacks(room.code, playerId, selected) };
   });
+  event(socket, 'set_difficulty', difficulty => ({ room: games.setDifficulty(room.code, playerId, difficulty === 'difficult' ? 'difficult' : 'easy') }));
   event(socket, 'start_round', () => {
     const next = games.beginRound(room.code, playerId);
     return { room: next, songUri: next.currentSong?.spotifyUri, finished: next.phase === 'finished' };

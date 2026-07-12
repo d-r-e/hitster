@@ -63,7 +63,7 @@ test('a HITSTER challenge does not prevent the active player from moving their p
   assert.equal(room.placement, 1);
 });
 
-test('a wrong guess earns no disc but is corrected onto the player board', () => {
+test('easy mode discards a wrong guess', () => {
   const game = new GameService(packs(Array.from({ length: 21 }, (_, index) => 1960 + index * 3)));
   const { room, player } = game.createRoom('DJ');
   game.start(room.code, player.id); game.beginRound(room.code, player.id);
@@ -72,9 +72,34 @@ test('a wrong guess earns no disc but is corrected onto the player board', () =>
   const wrongPosition = songYear < existingYear ? 1 : 0;
   game.selectPosition(room.code, player.id, wrongPosition); game.confirmPosition(room.code, player.id);
   assert.equal(room.players[0].score, 0);
+  assert.equal(room.players[0].timeline.length, 1);
+  assert.equal(game.state(room).lastResult?.correct, false);
+});
+
+test('difficult mode corrects a wrong guess onto the player board', () => {
+  const game = new GameService(packs(Array.from({ length: 21 }, (_, index) => 1960 + index * 3)));
+  const { room, player } = game.createRoom('DJ');
+  game.setDifficulty(room.code, player.id, 'difficult');
+  game.start(room.code, player.id); game.beginRound(room.code, player.id);
+  const songYear = room.currentSong!.year;
+  const existingYear = room.players[0].timeline[0].song.year;
+  game.selectPosition(room.code, player.id, songYear < existingYear ? 1 : 0); game.confirmPosition(room.code, player.id);
+  assert.equal(room.players[0].score, 0);
+  assert.equal(room.players[0].timeline.length, 2);
   const years = room.players[0].timeline.map(card => card.song.year);
   assert.deepEqual(years, [...years].sort((a, b) => a - b));
-  assert.equal(game.state(room).lastResult?.correct, false);
+});
+
+test('only the host can choose difficulty before the game starts', () => {
+  const game = new GameService(packs());
+  const { room, player: host } = game.createRoom('Host');
+  const { player: guest } = game.joinRoom(room.code, 'Guest');
+  assert.equal(game.state(room).difficulty, 'easy');
+  assert.throws(() => game.setDifficulty(room.code, guest.id, 'difficult'), /host/);
+  game.setDifficulty(room.code, host.id, 'difficult');
+  assert.equal(game.state(room).difficulty, 'difficult');
+  game.start(room.code, host.id);
+  assert.throws(() => game.setDifficulty(room.code, host.id, 'easy'), /before the game starts/);
 });
 
 test('only the active player can select and confirm', () => {
