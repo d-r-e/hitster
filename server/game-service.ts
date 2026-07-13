@@ -10,7 +10,7 @@ type Room = {
   difficulty: GameDifficulty;
   selectedPackIds: string[];
   challenges: Array<{ playerId: string; position: number }>;
-  lastResult?: { playerId: string; correct: boolean; cardOwnerId: string; titleTokenAwarded?: boolean; guaranteed?: boolean };
+  lastResult?: { playerId: string; correct: boolean; cardOwnerId: string; placement?: number; titleTokenAwarded?: boolean; guaranteed?: boolean };
 };
 
 const ROOM_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ';
