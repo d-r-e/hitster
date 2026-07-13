@@ -173,17 +173,34 @@ test('an exhausted deck finishes the game instead of failing mid-round', () => {
   assert.equal(room.winnerId, player.id);
 });
 
-test('a verbal title and artist claim earns one token even after a wrong placement', () => {
+test('a title and artist claim cannot earn a token after a wrong placement', () => {
   const game = new GameService(packs(Array.from({ length: 21 }, (_, index) => [1960, 2000, 2020][index % 3])));
   const { room, player: host } = game.createRoom('DJ');
   game.start(room.code, host.id); game.beginRound(room.code, host.id);
   const active = room.players[room.activeIndex];
-  const existing = active.timeline[0].song.year, song = room.currentSong!.year;
+  active.timeline[0].song.year = 2000;
+  room.currentSong!.year = 1960;
   game.setTitleClaim(room.code, active.id, true);
-  game.selectPosition(room.code, active.id, song < existing ? 1 : 0);
+  game.selectPosition(room.code, active.id, 1);
+  game.confirmPosition(room.code, active.id);
+  assert.equal(room.phase, 'revealed');
+  assert.equal(game.state(room).currentSong?.id, room.currentSong?.id);
+  assert.equal(active.tokens, 2);
+  assert.equal(room.lastResult?.titleTokenAwarded, undefined);
+  assert.throws(() => game.adjudicateTitle(room.code, host.id, true), /no title guess/);
+});
+
+test('a title and artist claim earns a token only after a correct placement', () => {
+  const game = new GameService(packs(Array.from({ length: 21 }, (_, index) => [1960, 2000, 2020][index % 3])));
+  const { room, player: host } = game.createRoom('DJ');
+  game.start(room.code, host.id); game.beginRound(room.code, host.id);
+  const active = room.players[room.activeIndex];
+  active.timeline[0].song.year = 2000;
+  room.currentSong!.year = 1960;
+  game.setTitleClaim(room.code, active.id, true);
+  game.selectPosition(room.code, active.id, 0);
   game.confirmPosition(room.code, active.id);
   assert.equal(room.phase, 'adjudicating');
-  assert.equal(game.state(room).currentSong?.id, room.currentSong?.id);
   game.adjudicateTitle(room.code, host.id, true);
   assert.equal(active.tokens, 3);
   assert.equal(room.lastResult?.titleTokenAwarded, true);

@@ -83,7 +83,8 @@ header strong { display: block; font-family: 'Archivo Black'; font-size: 1rem; l
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.timeline { position: relative; isolation: isolate; margin: 12px 0; }
+.timeline { position: relative; z-index: 1; isolation: isolate; margin: 12px 0; }
+.timeline:has(.confirm-tray) { padding-bottom: calc(140px + env(safe-area-inset-bottom, 0px)); }
 .timeline-title { display: flex; align-items: end; margin-bottom: 8px; padding: 0 2px; }
 .timeline-title h2 { font-family: 'Archivo Black'; font-size: 1.05rem; line-height: 1; }
 .mystery-track { position: relative; z-index: 6; display: grid; grid-template-columns: 42px 1fr auto; align-items: center; width: 100%; min-height: 54px; gap: 10px; margin-bottom: 7px; padding: 5px 11px; border: 2px solid #ffcd49; border-radius: 10px; color: #fff8dd; text-align: left; background: linear-gradient(100deg, #932f62, #5a265f); box-shadow: inset 0 1px #db78a5, 0 5px 0 #28102c, 0 8px 18px #0007; touch-action: pan-y; user-select: none; }
@@ -128,7 +129,7 @@ header strong { display: block; font-family: 'Archivo Black'; font-size: 1rem; l
 .latest-card.missed { border-color: #ff738b; box-shadow: inset 0 0 0 1px #ff738b55, 0 0 18px #e94c6d80, 0 4px 0 #69162b; }
 .result-badge { display: inline-flex; width: max-content; margin-top: 5px; padding: 2px 6px; border-radius: 999px; color: #102117; background: #7af0ad; font-size: .58rem; letter-spacing: .03em; text-transform: uppercase; }
 .latest-card.missed .result-badge { color: #fff4f5; background: #d94162; }
-.failed-card { border: 2px solid #ff405f; background: radial-gradient(circle at 15% 50%, #ff5a6f55, transparent 50%), linear-gradient(105deg, #8f1836, #2a0714 62%, #12060b); box-shadow: inset 0 0 0 1px #ff9aaa66, 0 0 24px #ff315866, 0 5px 0 #5b0b20; animation: failed-card-in .42s cubic-bezier(.2,.8,.2,1) both; }
+.failed-card { column-gap: 5px; border: 2px solid #ff405f; background: radial-gradient(circle at 15% 50%, #ff5a6f55, transparent 50%), linear-gradient(105deg, #8f1836, #2a0714 62%, #12060b); box-shadow: inset 0 0 0 1px #ff9aaa66, 0 0 24px #ff315866, 0 5px 0 #5b0b20; animation: failed-card-in .42s cubic-bezier(.2,.8,.2,1) both; }
 .failed-card .chart-year { background: #be1f43; }
 .failed-card .chart-year strong { color: #fff8f8; font-size: 1.8rem; text-shadow: 0 2px 0 #6d0e25, 0 0 12px #ffb1bd; }
 .failed-card .chart-copy strong { color: #fff5f6; }
@@ -139,7 +140,7 @@ header strong { display: block; font-family: 'Archivo Black'; font-size: 1rem; l
 @keyframes failed-card-out { 0% { opacity: 1; transform: translateX(0) rotate(0) scale(1); filter: saturate(1); } 45% { opacity: 1; transform: translateX(7px) rotate(2deg) scale(1.02); filter: saturate(1.5); } 100% { opacity: 0; transform: translateX(-34px) rotate(-8deg) scale(.72); filter: saturate(2) blur(2px); } }
 @keyframes newest-card { from { transform: scale(.96); opacity: .2; } to { transform: scale(1); opacity: 1; } }
 .decade-50 { --decade: #665a32; }.decade-60 { --decade: #275e5c; }.decade-70 { --decade: #70462c; }.decade-80 { --decade: #56316d; }.decade-90 { --decade: #274d70; }.decade-00 { --decade: #6b2d58; }.decade-10 { --decade: #315e42; }.decade-20 { --decade: #71343d; }
-.confirm-tray { position: sticky; bottom: 8px; z-index: 4; display: grid; grid-template-columns: 1fr; gap: 10px; margin-top: 10px; padding: 0; }
+.confirm-tray { position: fixed; left: 50%; bottom: max(8px, env(safe-area-inset-bottom, 0px)); z-index: 4; display: grid; width: min(calc(100% - 20px), 592px); padding: 8px; border: 1px solid #604b69; border-radius: 13px; background: #160e20e8; box-shadow: 0 8px 24px #000b; backdrop-filter: blur(14px); transform: translateX(-50%); }
 .confirm-actions { display: grid; gap: 10px; grid-template-columns: 1fr; }
 .confirm-actions button { padding: 14px 16px; font-size: .85rem; min-height: 52px; font-weight: 700; }
 .token-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin: 10px 0; }

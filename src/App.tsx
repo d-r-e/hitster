@@ -5,7 +5,7 @@ import { RoomQr } from './components/RoomQr';
 import { useSpotifyPlayer } from './hooks/useSpotifyPlayer';
 import { type Locale, type MessageKey, useI18n } from './i18n';
 import { addLocalPlayer, createRoom, joinRoom, rejoinRoom } from './lib/api';
-import { clearSession, loadSession, saveLocalPlayerIds, saveSession, type Session } from './lib/session';
+import { clearSession, loadNickname, loadSession, saveLocalPlayerIds, saveNickname, saveSession, type Session } from './lib/session';
 import { disconnectSpotify, finishSpotifyCallback, redirectToSpotify, spotifyConfigured } from './lib/spotify';
 import './App.css';
 
@@ -28,7 +28,7 @@ export default function App() {
     return savedSession;
   });
   const [state, setState] = useState<GameState | null>(null);
-  const [nickname, setNickname] = useState('');
+  const [nickname, setNickname] = useState(loadNickname);
   const [roomCode, setRoomCode] = useState(requestedRoomCode);
   const [notice, setNotice] = useState('');
   const [socket, setSocket] = useState<Socket | null>(null);
@@ -42,8 +42,9 @@ export default function App() {
   const toggleSpotify = spotify.toggle;
   const playSpotify = spotify.play;
 
-  useEffect(() => { finishSpotifyCallback().then(done => done && setNotice(tRef.current('spotifyConnected'))).catch(() => setNotice(tRef.current('spotifyLoginFailed'))); }, []);
+  useEffect(() => { finishSpotifyCallback().then(done => done && setNotice('')).catch(() => setNotice(tRef.current('spotifyLoginFailed'))); }, []);
   useEffect(() => { document.documentElement.lang = locale; }, [locale]);
+  useEffect(() => { saveNickname(nickname); }, [nickname]);
   useEffect(() => {
     const handleRoomUrlChange = () => {
       const nextRoomCode = requestedRoomCode();
@@ -75,7 +76,7 @@ export default function App() {
   }, [socket, isHost, spotify.status, state?.phase, currentDjUri]);
   useEffect(() => {
     if (!socket || !isHost || spotify.status !== 'ready') return;
-    const playChangedSong = (uri?: string) => { if (!uri) return; setCurrentDjUri(uri); playSpotify(uri).then(() => setNotice(tRef.current('songPlaying'))).catch(error => setNotice(error instanceof Error ? error.message : tRef.current('playbackFailed'))); };
+    const playChangedSong = (uri?: string) => { if (!uri) return; setCurrentDjUri(uri); playSpotify(uri).then(() => setNotice('')).catch(error => setNotice(error instanceof Error ? error.message : tRef.current('playbackFailed'))); };
     socket.on('dj_song_changed', playChangedSong);
     return () => { socket.off('dj_song_changed', playChangedSong); };
   }, [socket, isHost, spotify.status, playSpotify]);
@@ -104,18 +105,18 @@ export default function App() {
     const playerAction = ['select_position', 'set_title_claim', 'skip_song', 'confirm_position', 'buy_guaranteed_card'].includes(event);
     const upcomingIndex = state?.phase === 'ready' ? state.players.findIndex(player => player.id === state.activePlayerId) : state?.phase === 'revealed' ? (state.players.findIndex(player => player.id === state.activePlayerId) + 1) % (state?.players.length || 1) : -1;
     const actorId = event === 'buy_guaranteed_card' ? state?.players[upcomingIndex]?.id : state?.activePlayerId;
-    try { const ack = await emit(event, ...args, ...(playerAction && actorId ? [actorId] : [])); if (!ack.ok) setNotice(ack.error ?? t('actionFailed')); return ack; } finally { actionPending.current = false; }
+    try { const ack = await emit(event, ...args, ...(playerAction && actorId ? [actorId] : [])); if (!ack.ok) setNotice(ack.error ?? t('actionFailed')); else setNotice(''); return ack; } finally { actionPending.current = false; }
   };
-  const startRound = async () => { try { await spotify.activate(); const ack = await action('start_round'); if (!ack.ok) throw new Error(ack.error ?? t('serverNoSong')); if (ack.finished) return; if (!ack.songUri) throw new Error(t('serverNoSong')); setCurrentDjUri(ack.songUri); await spotify.play(ack.songUri); setNotice(t('songPlaying')); } catch (error) { setNotice(error instanceof Error ? error.message : t('playbackFailed')); } };
-  const retryPlayback = async () => { if (!currentDjUri) return; try { await spotify.play(currentDjUri); setNotice(t('restarted')); } catch { setNotice(t('restartFailed')); } };
-  const replaceSong = async () => { try { const ack = await emit('replace_round_song'); if (!ack.ok || !ack.songUri) throw new Error(ack.error); setCurrentDjUri(ack.songUri); await spotify.play(ack.songUri); setNotice(t('replacementPlaying')); } catch { setNotice(t('replacementFailed')); } };
-  const create = async () => { try { const result = await createRoom(nickname); saveSession(result); setSession({ roomCode: result.state.roomCode, playerId: result.playerId, playerToken: result.playerToken }); setState(result.state); history.replaceState({}, '', `?room=${result.state.roomCode}`); } catch { setNotice(t('createFailed')); } };
-  const join = async () => { try { const result = await joinRoom(roomCode, nickname); saveSession(result); setSession({ roomCode: result.state.roomCode, playerId: result.playerId, playerToken: result.playerToken }); setState(result.state); history.replaceState({}, '', `?room=${result.state.roomCode}`); } catch { setNotice(t('joinFailed')); } };
+  const startRound = async () => { try { await spotify.activate(); const ack = await action('start_round'); if (!ack.ok) throw new Error(ack.error ?? t('serverNoSong')); if (ack.finished) return; if (!ack.songUri) throw new Error(t('serverNoSong')); setCurrentDjUri(ack.songUri); await spotify.play(ack.songUri); setNotice(''); } catch (error) { setNotice(error instanceof Error ? error.message : t('playbackFailed')); } };
+  const retryPlayback = async () => { if (!currentDjUri) return; try { await spotify.play(currentDjUri); setNotice(''); } catch { setNotice(t('restartFailed')); } };
+  const replaceSong = async () => { try { const ack = await emit('replace_round_song'); if (!ack.ok || !ack.songUri) throw new Error(ack.error); setCurrentDjUri(ack.songUri); await spotify.play(ack.songUri); setNotice(''); } catch { setNotice(t('replacementFailed')); } };
+  const create = async () => { try { const result = await createRoom(nickname); saveSession(result); setSession({ roomCode: result.state.roomCode, playerId: result.playerId, playerToken: result.playerToken }); setState(result.state); setNotice(''); history.replaceState({}, '', `?room=${result.state.roomCode}`); } catch { setNotice(t('createFailed')); } };
+  const join = async () => { try { const result = await joinRoom(roomCode, nickname); saveSession(result); setSession({ roomCode: result.state.roomCode, playerId: result.playerId, playerToken: result.playerToken }); setState(result.state); setNotice(''); history.replaceState({}, '', `?room=${result.state.roomCode}`); } catch { setNotice(t('joinFailed')); } };
   const connectSpotify = async () => { setNotice(t('openingSpotify')); try { await redirectToSpotify(); } catch (error) { setNotice(error instanceof Error ? error.message : t('spotifyLoginFailed')); } };
   const leave = () => { clearSession(); setSession(null); setState(null); setCurrentDjUri(null); history.replaceState({}, '', location.pathname); };
   const shareRoom = async () => {
     const url = new URL(window.location.href); url.search = `room=${state?.roomCode ?? ''}`;
-    try { if (navigator.share) await navigator.share({ title: 'HITSTER', url: url.toString() }); else { await navigator.clipboard.writeText(url.toString()); setNotice(t('roomCopied')); } }
+    try { if (navigator.share) await navigator.share({ title: 'HITSTER', url: url.toString() }); else await navigator.clipboard.writeText(url.toString()); setNotice(''); }
     catch (error) { if ((error as DOMException).name !== 'AbortError') setNotice(t('actionFailed')); }
   };
   const addPlayerOnDevice = async (localNickname: string) => {
@@ -124,7 +125,7 @@ export default function App() {
       const result = await addLocalPlayer(session.roomCode, session.playerId, session.playerToken, localNickname);
       const localPlayerIds = [...(session.localPlayerIds ?? []), result.playerId];
       const nextSession = { ...session, localPlayerIds };
-      saveLocalPlayerIds(nextSession, localPlayerIds); setSession(nextSession); setState(result.state);
+      saveLocalPlayerIds(nextSession, localPlayerIds); setSession(nextSession); setState(result.state); setNotice('');
     } catch (error) { setNotice(error instanceof Error ? error.message : t('actionFailed')); }
   };
 
@@ -159,7 +160,7 @@ function Game({ state, playerId, controlledPlayerIds, isHost, notice, spotify, s
     const topBar = state.phase === 'lobby'
       ? <><small>{t('privateRoom')}</small><strong>{state.roomCode}</strong></>
       : <strong>{t('turnTitle', { name: turnName })}</strong>;
-    return <main className="game"><header><div>{topBar}</div><button className="text share-room" onClick={shareRoom}>{t('shareRoom')}</button><LanguageToggle {...{ locale, setLocale }} /><button className="text" onClick={leave}>{t('leave')}</button></header>
+    return <main className="game"><header><div>{topBar}</div><button className="text share-room" onClick={shareRoom}>{t('shareRoom')}</button>{state.phase === 'lobby' && <LanguageToggle {...{ locale, setLocale }} />}<button className="text" onClick={leave}>{t('leave')}</button></header>
     {state.phase !== 'lobby' && <Scoreboard players={state.players} playerIds={controlledPlayerIds} activePlayerId={state.activePlayerId} />}
     <section className="status"><p>{statusText(state, controlledPlayerIds, t)}</p><span>{state.phase === 'lobby' ? t('players', { count: state.players.length }) : t('roundTurn', { round: state.round, name: active?.nickname ?? '' })}</span></section>
     {state.phase === 'lobby' ? <Lobby players={state.players} roomCode={state.roomCode} difficulty={state.difficulty} isHost={isHost} spotify={spotify} addPlayerOnDevice={addPlayerOnDevice} connectSpotify={connectSpotify} disconnectSpotify={disconnect} start={() => action('start_game')} packs={state.availablePacks ?? []} selectedPackIds={state.selectedPackIds ?? []} songCount={state.selectedSongCount ?? 0} onTogglePacks={(ids: string[]) => action('set_packs', ids)} onDifficulty={difficulty => action('set_difficulty', difficulty)} t={t} /> : <><SongPanel state={state} t={t} isPlaying={spotify.isPlaying} onTogglePlay={spotify.toggle} onRestart={retryPlayback} canSkip={canSkip} onSkip={() => action('skip_song')} />{state.phase === 'placing' && <TokenActions me={me} canChallenge={canChallenge} challengeMode={challengeMode} setChallengeMode={setChallengeMode} t={t} />}{boardOwner && <Timeline player={boardOwner} currentSong={state.currentSong} isOwn={controlledPlayerIds.includes(boardOwner.id)} canPlace={canPlace} challengeMode={challengeMode} challenges={state.phase === 'placing' ? state.challenges ?? [] : []} showMystery={state.phase === 'placing'} selectedPosition={state.selectedPosition} highlightedSongId={state.currentSong?.id} result={state.lastResult} place={position => action('select_position', position)} challenge={challengeAt} confirm={() => action('confirm_position')} confirmWithTitle={confirmWithTitle} t={t} />}{canBuy && <button className="token-buy" onClick={() => action('buy_guaranteed_card')}>{t('buyCard')}</button>}{state.phase === 'adjudicating' && isHost && <TitleAdjudication action={action} t={t} />}{state.phase === 'adjudicating' && !isHost && <p className="review-wait">{t('waitingTitleReview')}</p>}{isHost && <HostControls state={state} spotify={spotify} startRound={startRound} replaceSong={replaceSong} connectSpotify={connectSpotify} t={t} />}</>}
@@ -275,7 +276,7 @@ function Timeline({ player, currentSong, isOwn, canPlace, challengeMode, challen
   const transientFailure = failedPlacement ?? departingFailure;
   const transientIndex = transientFailure ? Math.min(transientFailure.placement, player.timeline.length) : -1;
   const slotCount = player.timeline.length + 1;
-  return <section className="timeline" data-board={player.id}><div className="timeline-title"><div><small>HITSTER</small><h2>{isOwn ? t('yourBoard') : t('boardOf', { name: player.nickname })}</h2></div></div>{showMystery && selectedPosition === undefined && mysteryRecord(false)}<div className={`chart-list ${challengeMode ? 'challenge-mode' : ''}`}>{Array.from({ length: slotCount }, (_, index) => { const isTransientSlot = Boolean(transientFailure && index === transientIndex); const cardIndex = transientFailure && index > transientIndex ? index - 1 : index; const card = isTransientSlot ? undefined : player.timeline[cardIndex]; const isLatest = card?.song.id === highlightedSongId; const hint = showOrderHint ? (index === 0 ? t('beforeOrder') : t('afterOrder')) : null; return <div className="chart-slot" key={`slot-${index}`}>{showMystery && selectedPosition === index ? <div data-drop-index={index} className={`drop-zone occupied ${hovered === index ? 'hovered' : ''}`}>{mysteryRecord(true)}<span className="challenge-stack">{challengeMarkers(index)}</span></div> : <button data-drop-index={index} className={`drop-zone ${interactable ? 'available' : ''} ${hovered === index ? 'hovered' : ''} ${hint ? 'hint' : ''}`} disabled={!interactable} onClick={() => canPlace ? place(index) : challenge(index)} aria-label={t('placePosition', { position: index + 1 })}><span className="order-hint">{hint}</span><span className="challenge-stack">{challengeMarkers(index)}</span></button>}{isTransientSlot && transientFailure && <article data-song-id={transientFailure.song.id} className={`chart-card failed-card ${departingFailure ? 'destroying' : ''}`}><div className="chart-year"><strong>{transientFailure.song.year}</strong></div><div className="chart-copy"><strong>{transientFailure.song.title}</strong><span>{transientFailure.song.artist}</span><b className="result-badge">× {t('noPoint')}</b></div></article>}{card && <article data-song-id={card.song.id} className={`chart-card ${decadeClass(card.song.year)} ${isLatest ? `latest-card ${wonPoint ? 'won' : 'missed'}` : ''}`}><div className="chart-year"><strong>{card.song.year}</strong></div><div className="chart-copy"><strong>{card.song.title}</strong><span>{card.song.artist}</span>{isLatest && <b className="result-badge">{wonPoint ? `✓ ${t('pointWon')}` : `× ${t('noPoint')}`}</b>}</div></article>}</div>; })}</div>{canPlace && selectedPosition !== undefined && <div className="confirm-tray"><div className="confirm-actions"><button onClick={confirm}>{t('confirmPosition')}</button><button className="primary" onClick={confirmWithTitle}>{t('confirmYearTitleArtist')}</button></div></div>}</section>;
+  return <section className="timeline" data-board={player.id}><div className="timeline-title"><div><small>HITSTER</small><h2>{isOwn ? t('yourBoard') : t('boardOf', { name: player.nickname })}</h2></div></div>{showMystery && selectedPosition === undefined && mysteryRecord(false)}<div className={`chart-list ${challengeMode ? 'challenge-mode' : ''}`}>{Array.from({ length: slotCount }, (_, index) => { const isTransientSlot = Boolean(transientFailure && index === transientIndex); const cardIndex = transientFailure && index > transientIndex ? index - 1 : index; const card = isTransientSlot ? undefined : player.timeline[cardIndex]; const isLatest = card?.song.id === highlightedSongId; const hint = showOrderHint ? (index === 0 ? t('beforeOrder') : t('afterOrder')) : null; return <div className="chart-slot" key={`slot-${index}`}>{showMystery && selectedPosition === index ? <div data-drop-index={index} className={`drop-zone occupied ${hovered === index ? 'hovered' : ''}`}>{mysteryRecord(true)}<span className="challenge-stack">{challengeMarkers(index)}</span></div> : <button data-drop-index={index} className={`drop-zone ${interactable ? 'available' : ''} ${hovered === index ? 'hovered' : ''} ${hint ? 'hint' : ''}`} disabled={!interactable} onClick={() => canPlace ? place(index) : challenge(index)} aria-label={t('placePosition', { position: index + 1 })}><span className="order-hint">{hint}</span><span className="challenge-stack">{challengeMarkers(index)}</span></button>}{isTransientSlot && transientFailure && <article data-song-id={transientFailure.song.id} className={`chart-card failed-card ${departingFailure ? 'destroying' : ''}`}><div className="chart-year"><strong>{transientFailure.song.year}</strong></div><div className="chart-copy"><strong>{transientFailure.song.title}</strong><span>{transientFailure.song.artist}</span><b className="result-badge">× {t('noPoint')}</b></div></article>}{card && <article data-song-id={card.song.id} className={`chart-card ${decadeClass(card.song.year)} ${isLatest ? `latest-card ${wonPoint ? 'won' : 'missed'}` : ''}`}><div className="chart-year"><strong>{card.song.year}</strong></div><div className="chart-copy"><strong>{card.song.title}</strong><span>{card.song.artist}</span>{isLatest && <b className="result-badge">{wonPoint ? `✓ ${t('pointWon')}` : `× ${t('noPoint')}`}</b>}</div></article>}</div>; })}</div>{canPlace && selectedPosition !== undefined && <div className="confirm-tray"><div className="confirm-actions"><button onClick={confirm}>{t('confirmPosition')}</button><button className="primary" onClick={confirmWithTitle}>{t('confirmOrderTitleArtist')}</button></div></div>}</section>;
 }
 
 function decadeClass(year: number) {

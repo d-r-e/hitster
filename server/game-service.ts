@@ -268,7 +268,7 @@ export class GameService {
     room.message = correct ? `${active.nickname} placed it correctly!` : winningChallenge ? `${cardOwner.nickname} stole the song!` : appendFailedSong ? `${active.nickname}'s placement was corrected on the board.` : `${active.nickname} missed, so the song was discarded.`;
     room.placement = undefined;
     if (cardOwner.score >= WINNING_SCORE) { room.phase = 'finished'; room.winnerId = cardOwner.id; return room; }
-    room.phase = room.titleClaimed ? 'adjudicating' : 'revealed';
+    room.phase = room.titleClaimed && correct ? 'adjudicating' : 'revealed';
     return room;
   }
 
