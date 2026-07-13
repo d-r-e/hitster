@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import type { GameState } from '../shared/game';
 import { RoomQr } from './components/RoomQr';
@@ -224,8 +224,12 @@ function TitleAdjudication({ action, t }: { action: (event: string, ...args: unk
   return <section className="title-review"><i className="hitster-token large" /><strong>{t('validateGuess')}</strong><div><button className="primary" onClick={() => action('adjudicate_title', true)}>{t('guessCorrect')}</button><button onClick={() => action('adjudicate_title', false)}>{t('guessWrong')}</button></div></section>;
 }
 
-function Timeline({ player, currentSong, isOwn, canPlace, challengeMode, challenges, showMystery, selectedPosition, highlightedSongId, result, place, challenge, confirm, confirmWithTitle, t }: { player: GameState['players'][number]; currentSong?: GameState['currentSong']; isOwn: boolean; canPlace: boolean; challengeMode: boolean; challenges: NonNullable<GameState['challenges']>; showMystery: boolean; selectedPosition?: number; highlightedSongId?: string; result?: GameState['lastResult']; place: (position: number) => void; challenge: (position: number) => void; confirm: () => void; confirmWithTitle: () => void; t: T }) {
+function Timeline({ player, currentSong, isOwn, canPlace, challengeMode, challenges, showMystery, selectedPosition, highlightedSongId, result, place, challenge, confirm, confirmWithTitle, t }: { player: GameState['players'][number]; currentSong?: GameState['currentSong']; isOwn: boolean; canPlace: boolean; challengeMode: boolean; challenges: NonNullable<GameState['challenges']>; showMystery: boolean; selectedPosition?: number; highlightedSongId?: string; result?: GameState['lastResult']; place: (position: number) => Promise<Ack>; challenge: (position: number) => void; confirm: () => void; confirmWithTitle: () => void; t: T }) {
   const [dragging, setDragging] = useState(false), [hovered, setHovered] = useState<number | null>(null), [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [pendingPosition, setPendingPosition] = useState<number | undefined>();
+  const boardRef = useRef<HTMLElement>(null);
+  const firstCardPositions = useRef<Map<string, DOMRect> | null>(null);
+  const visualPosition = pendingPosition ?? selectedPosition;
   const failedPlacement = useMemo(() => result && !result.correct && !result.guaranteed && result.cardOwnerId === result.playerId && result.placement !== undefined && currentSong ? { song: currentSong, placement: result.placement } : null, [result, currentSong]);
   const [departingFailure, setDepartingFailure] = useState<typeof failedPlacement>(null);
   const previousFailure = useRef<typeof failedPlacement>(null);
@@ -239,7 +243,39 @@ function Timeline({ player, currentSong, isOwn, canPlace, challengeMode, challen
     const timer = window.setTimeout(() => setDepartingFailure(null), 650);
     return () => window.clearTimeout(timer);
   }, [failureKey, failedPlacement]);
+  useEffect(() => {
+    if (pendingPosition !== undefined && selectedPosition === pendingPosition) setPendingPosition(undefined);
+  }, [pendingPosition, selectedPosition]);
+  useLayoutEffect(() => {
+    const firstPositions = firstCardPositions.current;
+    firstCardPositions.current = null;
+    if (!firstPositions || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    boardRef.current?.querySelectorAll<HTMLElement>('[data-layout-card]').forEach(card => {
+      const id = card.dataset.layoutCard;
+      const first = id ? firstPositions.get(id) : undefined;
+      if (!first) return;
+      const last = card.getBoundingClientRect();
+      const deltaX = first.left - last.left, deltaY = first.top - last.top;
+      if (Math.abs(deltaX) < 1 && Math.abs(deltaY) < 1) return;
+      card.animate(
+        [{ transform: `translate3d(${deltaX}px, ${deltaY}px, 0)` }, { transform: 'translate3d(0, 0, 0)' }],
+        { duration: 280, easing: 'cubic-bezier(.2, .8, .2, 1)' },
+      );
+    });
+  }, [visualPosition]);
   const drag = useRef<{ pointerId: number; startX: number; startY: number; hovered: number | null } | null>(null);
+  const captureCardPositions = () => {
+    firstCardPositions.current = new Map([...boardRef.current?.querySelectorAll<HTMLElement>('[data-layout-card]') ?? []].flatMap(card => card.dataset.layoutCard ? [[card.dataset.layoutCard, card.getBoundingClientRect()]] : []));
+  };
+  const choosePosition = (position: number) => {
+    captureCardPositions();
+    setPendingPosition(position);
+    void place(position).then(result => {
+      if (result.ok) return;
+      captureCardPositions();
+      setPendingPosition(undefined);
+    });
+  };
   const findDrop = (clientY: number) => { const zones = [...document.querySelectorAll<HTMLElement>(`[data-board="${player.id}"] .drop-zone`)]; return zones.reduce<{ index: number; distance: number } | null>((best, zone) => { const rect = zone.getBoundingClientRect(), distance = Math.abs(clientY - (rect.top + rect.bottom) / 2), index = Number(zone.dataset.dropIndex); return !best || distance < best.distance ? { index, distance } : best; }, null)?.index ?? null; };
   const pointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (!canPlace || !event.isPrimary || event.button !== 0) return;
@@ -263,7 +299,7 @@ function Timeline({ player, currentSong, isOwn, canPlace, challengeMode, challen
     if (!activeDrag || activeDrag.pointerId !== event.pointerId) return;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     drag.current = null;
-    if (!cancelled && activeDrag.hovered !== null) place(activeDrag.hovered);
+    if (!cancelled && activeDrag.hovered !== null) choosePosition(activeDrag.hovered);
     setDragging(false);
     setHovered(null);
     setOffset({ x: 0, y: 0 });
@@ -276,7 +312,7 @@ function Timeline({ player, currentSong, isOwn, canPlace, challengeMode, challen
   const transientFailure = failedPlacement ?? departingFailure;
   const transientIndex = transientFailure ? Math.min(transientFailure.placement, player.timeline.length) : -1;
   const slotCount = player.timeline.length + 1;
-  return <section className="timeline" data-board={player.id}><div className="timeline-title"><div><small>HITSTER</small><h2>{isOwn ? t('yourBoard') : t('boardOf', { name: player.nickname })}</h2></div></div>{showMystery && selectedPosition === undefined && mysteryRecord(false)}<div className={`chart-list ${challengeMode ? 'challenge-mode' : ''}`}>{Array.from({ length: slotCount }, (_, index) => { const isTransientSlot = Boolean(transientFailure && index === transientIndex); const cardIndex = transientFailure && index > transientIndex ? index - 1 : index; const card = isTransientSlot ? undefined : player.timeline[cardIndex]; const isLatest = card?.song.id === highlightedSongId; const hint = showOrderHint ? (index === 0 ? t('beforeOrder') : t('afterOrder')) : null; return <div className="chart-slot" key={`slot-${index}`}>{showMystery && selectedPosition === index ? <div data-drop-index={index} className={`drop-zone occupied ${hovered === index ? 'hovered' : ''}`}>{mysteryRecord(true)}<span className="challenge-stack">{challengeMarkers(index)}</span></div> : <button data-drop-index={index} className={`drop-zone ${interactable ? 'available' : ''} ${hovered === index ? 'hovered' : ''} ${hint ? 'hint' : ''}`} disabled={!interactable} onClick={() => canPlace ? place(index) : challenge(index)} aria-label={t('placePosition', { position: index + 1 })}><span className="order-hint">{hint}</span><span className="challenge-stack">{challengeMarkers(index)}</span></button>}{isTransientSlot && transientFailure && <article data-song-id={transientFailure.song.id} className={`chart-card failed-card ${departingFailure ? 'destroying' : ''}`}><div className="chart-year"><strong>{transientFailure.song.year}</strong></div><div className="chart-copy"><strong>{transientFailure.song.title}</strong><span>{transientFailure.song.artist}</span><b className="result-badge">× {t('noPoint')}</b></div></article>}{card && <article data-song-id={card.song.id} className={`chart-card ${decadeClass(card.song.year)} ${isLatest ? `latest-card ${wonPoint ? 'won' : 'missed'}` : ''}`}><div className="chart-year"><strong>{card.song.year}</strong></div><div className="chart-copy"><strong>{card.song.title}</strong><span>{card.song.artist}</span>{isLatest && <b className="result-badge">{wonPoint ? `✓ ${t('pointWon')}` : `× ${t('noPoint')}`}</b>}</div></article>}</div>; })}</div>{canPlace && selectedPosition !== undefined && <div className="confirm-tray"><div className="confirm-actions"><button onClick={confirm}>{t('confirmPosition')}</button><button className="primary" onClick={confirmWithTitle}>{t('confirmOrderTitleArtist')}</button></div></div>}</section>;
+  return <section ref={boardRef} className="timeline" data-board={player.id}><div className="timeline-title"><div><small>HITSTER</small><h2>{isOwn ? t('yourBoard') : t('boardOf', { name: player.nickname })}</h2></div></div>{showMystery && visualPosition === undefined && mysteryRecord(false)}<div className={`chart-list ${challengeMode ? 'challenge-mode' : ''}`}>{Array.from({ length: slotCount }, (_, index) => { const isTransientSlot = Boolean(transientFailure && index === transientIndex); const cardIndex = transientFailure && index > transientIndex ? index - 1 : index; const card = isTransientSlot ? undefined : player.timeline[cardIndex]; const isLatest = card?.song.id === highlightedSongId; const hint = showOrderHint ? (index === 0 ? t('beforeOrder') : t('afterOrder')) : null; return <div className="chart-slot" key={`slot-${index}`}>{showMystery && visualPosition === index ? <div data-drop-index={index} className={`drop-zone occupied ${hovered === index ? 'hovered' : ''}`}>{mysteryRecord(true)}<span className="challenge-stack">{challengeMarkers(index)}</span></div> : <button data-drop-index={index} className={`drop-zone ${interactable ? 'available' : ''} ${hovered === index ? 'hovered' : ''} ${hint ? 'hint' : ''}`} disabled={!interactable} onClick={() => canPlace ? choosePosition(index) : challenge(index)} aria-label={t('placePosition', { position: index + 1 })}><span className="order-hint">{hint}</span><span className="challenge-stack">{challengeMarkers(index)}</span></button>}{isTransientSlot && transientFailure && <article data-layout-card={transientFailure.song.id} data-song-id={transientFailure.song.id} className={`chart-card failed-card ${departingFailure ? 'destroying' : ''}`}><div className="chart-year"><strong>{transientFailure.song.year}</strong></div><div className="chart-copy"><strong>{transientFailure.song.title}</strong><span>{transientFailure.song.artist}</span><b className="result-badge">× {t('noPoint')}</b></div></article>}{card && <article data-layout-card={card.song.id} data-song-id={card.song.id} className={`chart-card ${decadeClass(card.song.year)} ${isLatest ? `latest-card ${wonPoint ? 'won' : 'missed'}` : ''}`}><div className="chart-year"><strong>{card.song.year}</strong></div><div className="chart-copy"><strong>{card.song.title}</strong><span>{card.song.artist}</span>{isLatest && <b className="result-badge">{wonPoint ? `✓ ${t('pointWon')}` : `× ${t('noPoint')}`}</b>}</div></article>}</div>; })}</div>{canPlace && selectedPosition !== undefined && <div className="confirm-tray"><div className="confirm-actions"><button onClick={confirm}>{t('confirmPosition')}</button><button className="primary" onClick={confirmWithTitle}>{t('confirmOrderTitleArtist')}</button></div></div>}</section>;
 }
 
 function decadeClass(year: number) {

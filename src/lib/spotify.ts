@@ -4,8 +4,21 @@ const TOKEN_KEY = 'hitster-spotify-tokens';
 const VERIFIER_KEY = 'hitster-spotify-verifier';
 const RETURN_URL_KEY = 'hitster-spotify-return-url';
 const STATE_KEY = 'hitster-spotify-state';
+const AUTH_VERSION = 2;
 export const SPOTIFY_SESSION_CHANGED_EVENT = 'hitster-spotify-session-changed';
-const SCOPES = ['streaming', 'user-read-private', 'user-read-playback-state', 'user-modify-playback-state'].join(' ');
+// Spotify's Web Playback SDK requires these three scopes even though this app
+// does not read profile data. Player API commands additionally require modify.
+const SCOPES = ['streaming', 'user-read-email', 'user-read-private', 'user-modify-playback-state'].join(' ');
+
+export class SpotifyApiError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'SpotifyApiError';
+    this.status = status;
+  }
+}
 
 function errorDetail(error: unknown) {
   return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
@@ -26,6 +39,7 @@ interface SpotifyTokens {
   accessToken: string;
   refreshToken?: string;
   expiresAt: number;
+  authVersion: number;
 }
 
 function randomString(length: number) {
@@ -42,7 +56,12 @@ async function challengeFor(verifier: string) {
 }
 
 function readTokens(): SpotifyTokens | null {
-  try { return JSON.parse(sessionStorage.getItem(TOKEN_KEY) ?? 'null'); }
+  try {
+    const value = JSON.parse(sessionStorage.getItem(TOKEN_KEY) ?? 'null') as Partial<SpotifyTokens> | null;
+    if (!value || value.authVersion !== AUTH_VERSION || typeof value.accessToken !== 'string' || !value.accessToken || typeof value.expiresAt !== 'number' || !Number.isFinite(value.expiresAt)) return null;
+    if (value.refreshToken !== undefined && typeof value.refreshToken !== 'string') return null;
+    return { accessToken: value.accessToken, expiresAt: value.expiresAt, authVersion: AUTH_VERSION, ...(value.refreshToken ? { refreshToken: value.refreshToken } : {}) };
+  }
   catch { return null; }
 }
 
@@ -66,7 +85,7 @@ export async function redirectToSpotify() {
     const verifier = randomString(96);
     const state = randomString(32);
     const challenge = await challengeFor(verifier);
-    console.log('[Spotify] redirectToSpotify: generated PKCE', { state, challenge: challenge.slice(0, 12) + '…', hasSecureContext: window.isSecureContext, hasSubtle: Boolean(crypto?.subtle) });
+    console.log('[Spotify] redirectToSpotify: generated PKCE', { hasSecureContext: window.isSecureContext, hasSubtle: Boolean(crypto?.subtle) });
     sessionStorage.setItem(VERIFIER_KEY, verifier);
     sessionStorage.setItem(STATE_KEY, state);
     sessionStorage.setItem(RETURN_URL_KEY, `${window.location.pathname}${window.location.search}`);
@@ -79,7 +98,7 @@ export async function redirectToSpotify() {
       code_challenge_method: 'S256',
       code_challenge: challenge,
     });
-    console.log('[Spotify] redirectToSpotify: redirecting to authorize', { url: `https://accounts.spotify.com/authorize?${params.toString().replace(/code_challenge=[^&]+/, 'code_challenge=…')}` });
+    console.log('[Spotify] redirectToSpotify: redirecting to authorize', { redirectUri: REDIRECT_URI, scopes: SCOPES });
     window.location.assign(`https://accounts.spotify.com/authorize?${params}`);
   } catch (error) {
     console.error('[Spotify] redirectToSpotify: failed', error);
@@ -95,8 +114,13 @@ async function processSpotifyCallback() {
   const callbackState = params.get('state');
   const oauthError = params.get('error');
   const oauthDescription = params.get('error_description');
-  console.log('[Spotify] processSpotifyCallback: invoked', { hasCode: Boolean(code), hasState: Boolean(callbackState), error: oauthError, errorDescription: oauthDescription, search: window.location.search });
-  if (oauthError) throw new Error(`Spotify authorization failed: ${oauthError}${oauthDescription ? ` — ${oauthDescription}` : ''}. Redirect URI: ${REDIRECT_URI}`);
+  console.log('[Spotify] processSpotifyCallback: invoked', { hasCode: Boolean(code), hasState: Boolean(callbackState), error: oauthError, errorDescription: oauthDescription });
+  if (oauthError) {
+    const returnUrl = sessionStorage.getItem(RETURN_URL_KEY) ?? '/';
+    sessionStorage.removeItem(VERIFIER_KEY); sessionStorage.removeItem(STATE_KEY); sessionStorage.removeItem(RETURN_URL_KEY);
+    window.history.replaceState({}, '', returnUrl);
+    throw new Error(`Spotify authorization failed: ${oauthError}${oauthDescription ? ` — ${oauthDescription}` : ''}. Redirect URI: ${REDIRECT_URI}`);
+  }
   if (!code) { console.log('[Spotify] processSpotifyCallback: no code, not a callback'); return false; }
   if (!CLIENT_ID) throw new Error('VITE_SPOTIFY_CLIENT_ID is not configured.');
   const verifier = sessionStorage.getItem(VERIFIER_KEY);
@@ -112,9 +136,11 @@ async function processSpotifyCallback() {
   });
   console.log('[Spotify] processSpotifyCallback: token response', { ok: response.ok, status: response.status });
   if (!response.ok) throw new Error(`Spotify did not accept the authorization callback (${await spotifyErrorResponse(response)}). Confirm that ${REDIRECT_URI} exactly matches a Redirect URI in the Spotify Dashboard.`);
-  const data = await response.json();
+  const data = await response.json() as { access_token?: unknown; refresh_token?: unknown; expires_in?: unknown };
+  if (typeof data.access_token !== 'string' || !data.access_token || typeof data.expires_in !== 'number' || !Number.isFinite(data.expires_in)) throw new Error('Spotify returned an invalid token response. Connect again.');
+  if (data.refresh_token !== undefined && typeof data.refresh_token !== 'string') throw new Error('Spotify returned an invalid refresh token. Connect again.');
   console.log('[Spotify] processSpotifyCallback: tokens received', { hasAccessToken: Boolean(data.access_token), hasRefreshToken: Boolean(data.refresh_token), expiresIn: data.expires_in });
-  writeTokens({ accessToken: data.access_token, refreshToken: data.refresh_token, expiresAt: Date.now() + data.expires_in * 1000 });
+  writeTokens({ accessToken: data.access_token, ...(data.refresh_token ? { refreshToken: data.refresh_token } : {}), expiresAt: Date.now() + data.expires_in * 1000, authVersion: AUTH_VERSION });
   sessionStorage.removeItem(VERIFIER_KEY); sessionStorage.removeItem(STATE_KEY);
   const returnUrl = sessionStorage.getItem(RETURN_URL_KEY) ?? '/';
   sessionStorage.removeItem(RETURN_URL_KEY);
@@ -131,11 +157,9 @@ export function finishSpotifyCallback() {
   return callbackPromise;
 }
 
-export async function getSpotifyAccessToken() {
-  const tokens = readTokens();
-  console.log('[Spotify] getSpotifyAccessToken: called', { hasTokens: Boolean(tokens), expiresAt: tokens?.expiresAt, now: Date.now() });
-  if (!tokens) throw new Error('Connect Spotify first.');
-  if (tokens.expiresAt > Date.now() + 60_000) { console.log('[Spotify] getSpotifyAccessToken: token still valid'); return tokens.accessToken; }
+let refreshPromise: Promise<string> | null = null;
+
+async function refreshSpotifyAccessToken(tokens: SpotifyTokens) {
   if (!CLIENT_ID || !tokens.refreshToken) { disconnectSpotify(); throw new Error('Spotify login expired. Connect again.'); }
   console.log('[Spotify] getSpotifyAccessToken: refreshing token');
   const response = await fetch('https://accounts.spotify.com/api/token', {
@@ -144,12 +168,28 @@ export async function getSpotifyAccessToken() {
     body: new URLSearchParams({ client_id: CLIENT_ID, grant_type: 'refresh_token', refresh_token: tokens.refreshToken }),
   });
   console.log('[Spotify] getSpotifyAccessToken: refresh response', { ok: response.ok, status: response.status });
-  if (!response.ok) { const detail = await spotifyErrorResponse(response); disconnectSpotify(); throw new Error(`Spotify login refresh failed (${detail}). Connect again.`); }
-  const data = await response.json();
-  const refreshed = { accessToken: data.access_token, refreshToken: data.refresh_token ?? tokens.refreshToken, expiresAt: Date.now() + data.expires_in * 1000 };
+  if (!response.ok) {
+    const detail = await spotifyErrorResponse(response);
+    const credentialsRejected = response.status === 400 || response.status === 401;
+    if (credentialsRejected) disconnectSpotify();
+    throw new Error(`Spotify login refresh failed (${detail}). ${credentialsRejected ? 'Connect again.' : 'Try again in a moment.'}`);
+  }
+  const data = await response.json() as { access_token?: unknown; refresh_token?: unknown; expires_in?: unknown };
+  if (typeof data.access_token !== 'string' || !data.access_token || typeof data.expires_in !== 'number' || !Number.isFinite(data.expires_in)) { disconnectSpotify(); throw new Error('Spotify returned an invalid refresh response. Connect again.'); }
+  if (data.refresh_token !== undefined && typeof data.refresh_token !== 'string') { disconnectSpotify(); throw new Error('Spotify returned an invalid refresh token. Connect again.'); }
+  const refreshed: SpotifyTokens = { accessToken: data.access_token, refreshToken: data.refresh_token || tokens.refreshToken, expiresAt: Date.now() + data.expires_in * 1000, authVersion: AUTH_VERSION };
   writeTokens(refreshed);
   console.log('[Spotify] getSpotifyAccessToken: refreshed');
   return refreshed.accessToken;
+}
+
+export async function getSpotifyAccessToken(forceRefresh = false) {
+  const tokens = readTokens();
+  console.log('[Spotify] getSpotifyAccessToken: called', { hasTokens: Boolean(tokens), expiresAt: tokens?.expiresAt, now: Date.now() });
+  if (!tokens) throw new Error('Connect Spotify first.');
+  if (!forceRefresh && tokens.expiresAt > Date.now() + 60_000) { console.log('[Spotify] getSpotifyAccessToken: token still valid'); return tokens.accessToken; }
+  refreshPromise ??= refreshSpotifyAccessToken(tokens).finally(() => { refreshPromise = null; });
+  return refreshPromise;
 }
 
 export function disconnectSpotify() {
@@ -159,12 +199,13 @@ export function disconnectSpotify() {
 
 export async function spotifyRequest(path: string, init: RequestInit = {}) {
   console.log('[Spotify] spotifyRequest:', init.method ?? 'GET', path);
-  const token = await getSpotifyAccessToken();
-  const response = await fetch(`https://api.spotify.com/v1${path}`, { ...init, headers: { ...init.headers, authorization: `Bearer ${token}`, 'content-type': 'application/json' } });
+  const request = async (token: string) => fetch(`https://api.spotify.com/v1${path}`, { ...init, headers: { ...init.headers, authorization: `Bearer ${token}`, 'content-type': 'application/json' } });
+  let response = await request(await getSpotifyAccessToken());
+  if (response.status === 401) response = await request(await getSpotifyAccessToken(true));
   console.log('[Spotify] spotifyRequest: response', { method: init.method ?? 'GET', path, status: response.status });
-  if (response.status === 401) throw new Error('Spotify login expired. Connect again.');
-  if (response.status === 403) throw new Error('Spotify Premium is required for playback.');
-  if (response.status === 429) throw new Error('Spotify is rate limiting playback. Wait a moment and retry.');
-  if (!response.ok) throw new Error(`Spotify playback failed (${await spotifyErrorResponse(response)}).`);
+  if (response.status === 401) throw new SpotifyApiError(401, 'Spotify login expired. Connect again.');
+  if (response.status === 403) throw new SpotifyApiError(403, 'Spotify Premium is required for playback.');
+  if (response.status === 429) throw new SpotifyApiError(429, 'Spotify is rate limiting playback. Wait a moment and retry.');
+  if (!response.ok) throw new SpotifyApiError(response.status, `Spotify playback failed (${await spotifyErrorResponse(response)}).`);
   return response;
 }

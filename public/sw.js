@@ -1,4 +1,4 @@
-const CACHE_NAME = 'hitster-v3';
+const CACHE_NAME = 'hitster-v4';
 const SHELL = ['/', '/index.html', '/manifest.json', '/icon.svg', '/icon-192.png', '/icon-512.png'];
 
 self.addEventListener('install', event => {
@@ -15,8 +15,15 @@ self.addEventListener('fetch', event => {
     event.respondWith(fetch(event.request).catch(() => caches.match('/index.html')));
     return;
   }
-  event.respondWith(caches.match(event.request).then(cached => cached ?? fetch(event.request).then(response => {
-    if (response.ok && new URL(event.request.url).origin === self.location.origin) caches.open(CACHE_NAME).then(cache => cache.put(event.request, response.clone()));
+  event.respondWith(caches.match(event.request).then(cached => cached ?? fetch(event.request).then(async response => {
+    if (response.ok && new URL(event.request.url).origin === self.location.origin) {
+      const cacheCopy = response.clone();
+      try {
+        await caches.open(CACHE_NAME).then(cache => cache.put(event.request, cacheCopy));
+      } catch (error) {
+        console.warn('[SW] Could not cache response', event.request.url, error);
+      }
+    }
     return response;
   })));
 });
