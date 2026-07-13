@@ -224,7 +224,7 @@ function TitleAdjudication({ action, t }: { action: (event: string, ...args: unk
 }
 
 function Timeline({ player, currentSong, isOwn, canPlace, challengeMode, challenges, showMystery, selectedPosition, highlightedSongId, result, place, challenge, confirm, confirmWithTitle, t }: { player: GameState['players'][number]; currentSong?: GameState['currentSong']; isOwn: boolean; canPlace: boolean; challengeMode: boolean; challenges: NonNullable<GameState['challenges']>; showMystery: boolean; selectedPosition?: number; highlightedSongId?: string; result?: GameState['lastResult']; place: (position: number) => void; challenge: (position: number) => void; confirm: () => void; confirmWithTitle: () => void; t: T }) {
-  const [dragging, setDragging] = useState(false), [hovered, setHovered] = useState<number | null>(null), [offset, setOffset] = useState(0);
+  const [dragging, setDragging] = useState(false), [hovered, setHovered] = useState<number | null>(null), [offset, setOffset] = useState({ x: 0, y: 0 });
   const failedPlacement = useMemo(() => result && !result.correct && !result.guaranteed && result.cardOwnerId === result.playerId && result.placement !== undefined && currentSong ? { song: currentSong, placement: result.placement } : null, [result, currentSong]);
   const [departingFailure, setDepartingFailure] = useState<typeof failedPlacement>(null);
   const previousFailure = useRef<typeof failedPlacement>(null);
@@ -238,12 +238,36 @@ function Timeline({ player, currentSong, isOwn, canPlace, challengeMode, challen
     const timer = window.setTimeout(() => setDepartingFailure(null), 650);
     return () => window.clearTimeout(timer);
   }, [failureKey, failedPlacement]);
-  const startY = useRef(0);
+  const drag = useRef<{ pointerId: number; startX: number; startY: number; hovered: number | null } | null>(null);
   const findDrop = (clientY: number) => { const zones = [...document.querySelectorAll<HTMLElement>(`[data-board="${player.id}"] .drop-zone`)]; return zones.reduce<{ index: number; distance: number } | null>((best, zone) => { const rect = zone.getBoundingClientRect(), distance = Math.abs(clientY - (rect.top + rect.bottom) / 2), index = Number(zone.dataset.dropIndex); return !best || distance < best.distance ? { index, distance } : best; }, null)?.index ?? null; };
-  const pointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => { if (!canPlace || event.pointerType === 'touch') return; event.currentTarget.setPointerCapture(event.pointerId); startY.current = event.clientY; setDragging(true); setHovered(findDrop(event.clientY)); };
-  const pointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => { if (!dragging) return; setOffset(event.clientY - startY.current); setHovered(findDrop(event.clientY)); };
-  const pointerUp = () => { if (dragging && hovered !== null) place(hovered); setDragging(false); setHovered(null); setOffset(0); };
-  const mysteryRecord = (compact: boolean) => <button className={`mystery-track ${compact ? 'in-slot' : 'at-deck'} ${canPlace ? 'draggable' : 'spectator'} ${dragging ? 'dragging' : ''}`} style={{ transform: `translate3d(0, ${offset}px, 0)` }} disabled={!canPlace} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={pointerUp}><i className="mystery-vinyl"><em>HITSTER</em></i>{!compact && <span>{canPlace ? t('dragTrack') : t('watchingDrag', { name: player.nickname })}</span>}<b>⋮⋮</b></button>;
+  const pointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!canPlace || !event.isPrimary || event.button !== 0) return;
+    const hoveredPosition = findDrop(event.clientY);
+    event.currentTarget.setPointerCapture(event.pointerId);
+    drag.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, hovered: hoveredPosition };
+    setDragging(true);
+    setHovered(hoveredPosition);
+  };
+  const pointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const activeDrag = drag.current;
+    if (!activeDrag || activeDrag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    const hoveredPosition = findDrop(event.clientY);
+    activeDrag.hovered = hoveredPosition;
+    setOffset({ x: event.clientX - activeDrag.startX, y: event.clientY - activeDrag.startY });
+    setHovered(hoveredPosition);
+  };
+  const finishPointer = (event: ReactPointerEvent<HTMLButtonElement>, cancelled = false) => {
+    const activeDrag = drag.current;
+    if (!activeDrag || activeDrag.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    drag.current = null;
+    if (!cancelled && activeDrag.hovered !== null) place(activeDrag.hovered);
+    setDragging(false);
+    setHovered(null);
+    setOffset({ x: 0, y: 0 });
+  };
+  const mysteryRecord = (compact: boolean) => <button className={`mystery-track ${compact ? 'in-slot' : 'at-deck'} ${canPlace ? 'draggable' : 'spectator'} ${dragging ? 'dragging' : ''}`} style={{ transform: `translate3d(${offset.x}px, ${offset.y}px, 0)` }} disabled={!canPlace} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={event => finishPointer(event)} onPointerCancel={event => finishPointer(event, true)}><i className="mystery-vinyl"><em>HITSTER</em></i>{!compact && <span>{canPlace ? t('dragTrack') : t('watchingDrag', { name: player.nickname })}</span>}<b>⋮⋮</b></button>;
   const challengeMarkers = (position: number) => challenges.filter(item => item.position === position).map(item => <i className="challenge-token" key={item.playerId}>H</i>);
   const interactable = canPlace || challengeMode;
   const showOrderHint = showMystery && player.timeline.length === 1;
